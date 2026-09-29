@@ -1,0 +1,35 @@
+services:
+  ai-service:
+    build: ./ai-service
+    restart: unless-stopped
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY:?GEMINI_API_KEY manquant dans .env}
+      - INTERNAL_SECRET=${INTERNAL_SECRET:?INTERNAL_SECRET manquant dans .env}
+      - PORT=4000
+    # Pas de "ports:" ici volontairement : ce service n'est joignable que
+    # depuis le réseau docker interne (par le backend), jamais depuis
+    # l'hôte ou l'extérieur. Il concentre tout le code qui parle à l'API
+    # du modèle (Gemini) et détient la seule clé API du projet.
+    expose:
+      - "4000"
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      - ai-service
+    environment:
+      - PORT=3001
+      - AI_SERVICE_URL=http://ai-service:4000
+      - INTERNAL_SECRET=${INTERNAL_SECRET:?INTERNAL_SECRET manquant dans .env}
+      - PUBLIC_URL=${PUBLIC_URL:?PUBLIC_URL manquant dans .env}
+      - ENABLEBANKING_APP_ID=${ENABLEBANKING_APP_ID:-}
+      - ENABLEBANKING_PRIVATE_KEY_PATH=/run/secrets/enablebanking_private.key
+    volumes:
+      - life-os-data:/app/data
+      - ./secrets/enablebanking/private.key:/run/secrets/enablebanking_private.key:ro
+    ports:
+      - "127.0.0.1:4100:3001"
+
+volumes:
+  life-os-data:

@@ -1,0 +1,115 @@
+:root {
+  color-scheme: dark;
+
+  /* Surfaces */
+  --bg-base: #08080c;
+  --bg-glow-1: rgba(255, 122, 69, 0.16);
+  --bg-glow-2: rgba(91, 66, 243, 0.16);
+  --glass-fill: rgba(255, 255, 255, 0.055);
+  --glass-fill-strong: rgba(255, 255, 255, 0.09);
+  --glass-border: rgba(255, 255, 255, 0.13);
+  --glass-border-bright: rgba(255, 255, 255, 0.26);
+  --glass-blur: 22px;
+  /* Darker, near-opaque surface for anything you need to read text on top
+     of reliably — modals and the nav dock — where the subtle glass-card
+     tint reads as "almost transparent" against busy content behind it. */
+  --surface-opaque: rgba(10, 10, 15, 0.94);
+
+  /* Signature accent — "ignition amber" */
+  --accent: #ff7a45;
+  --accent-strong: #ff9666;
+  --accent-glow: rgba(255, 122, 69, 0.55);
+
+  /* Status */
+  --positive: #33e6c8;
+  --positive-glow: rgba(51, 230, 200, 0.45);
+  --negative: #ff5c72;
+  --negative-glow: rgba(255, 92, 114, 0.45);
+
+  /* Text */
+  --text-primary: #f5f6fa;
+  --text-secondary: #aab0c4;
+  --text-muted: #6b7086;
+
+  /* Type */
+  --font-display: "Space Grotesk", "General Sans", system-ui, sans-serif;
+  --font-body: "General Sans", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+
+  --radius-lg: 28px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Locks the document itself so it can never scroll. Without this, some
+   mobile browsers (iOS Safari in particular) scroll the whole page — not
+   just our internal scroll containers — to bring a focused input above the
+   keyboard, which shoves the fixed-height app shell down and hides the
+   header. `position: fixed` removes the document from normal scrolling
+   flow entirely, which is the reliable fix for that behavior; `overflow:
+   hidden` alone isn't always enough on iOS. */
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  overscroll-behavior: none;
+  font-family: var(--font-body);
+  background: var(--bg-base);
+  color: var(--text-primary);
+}
+
+#root {
+  height: 100%;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+[role='button'] {
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
