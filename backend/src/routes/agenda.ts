@@ -106,9 +106,19 @@ function setReminders(eventId: number, startAt: string, allDay: boolean, offsets
   const now = Date.now();
   db.prepare("DELETE FROM agenda_reminders WHERE event_id = ? AND sent = 0").run(eventId);
   const insert = db.prepare("INSERT OR IGNORE INTO agenda_reminders (event_id, offset_min, remind_at) VALUES (?, ?, ?)");
+  let pending = 0;
   for (const offset of new Set(offsets)) {
     const at = base - offset * 60 * 1000;
-    if (at > now) insert.run(eventId, offset, new Date(at).toISOString());
+    if (at > now) pending += insert.run(eventId, offset, new Date(at).toISOString()).changes;
+  }
+
+  // An appointment learned about late (a mail about a meeting in 20 min)
+  // has all its reminders in the past: notify right away instead of never.
+  // Skipped when the user chose no reminders, for all-day events, and when
+  // this event already got a reminder (an edit shouldn't notify again).
+  const alreadySent = db.prepare("SELECT 1 FROM agenda_reminders WHERE event_id = ? AND sent = 1").get(eventId);
+  if (offsets.length > 0 && pending === 0 && !allDay && base > now && !alreadySent) {
+    insert.run(eventId, Math.max(1, Math.round((base - now) / 60000)), new Date(now).toISOString());
   }
 }
 

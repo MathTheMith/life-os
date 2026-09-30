@@ -271,13 +271,18 @@ async function notifyUrgent() {
 }
 
 let running = false;
+// A new mail announced while a run is in progress: run again right after.
+let rerun = false;
 
 export function isMailRunning() {
   return running;
 }
 
 export async function runMail(): Promise<{ fetched: number }> {
-  if (running) return { fetched: 0 };
+  if (running) {
+    rerun = true;
+    return { fetched: 0 };
+  }
   running = true;
   let fetched = 0;
   try {
@@ -297,7 +302,47 @@ export async function runMail(): Promise<{ fetched: number }> {
   } finally {
     running = false;
   }
+  if (rerun) {
+    rerun = false;
+    runMail().catch((err) => console.error("Mails :", err));
+  }
   return { fetched };
+}
+
+// Keeps an IMAP connection open on the inbox (IDLE): Gmail announces each
+// new mail and it's triaged within a minute, so an appointment "in 20 min"
+// isn't discovered half an hour late. Reconnects whenever the connection
+// drops (Gmail closes idle ones after a while).
+async function watchInbox(account: Account) {
+  let debounce: NodeJS.Timeout | undefined;
+  const onNewMail = () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => runMail().catch((err) => console.error("Mails :", err)), 5000);
+  };
+  for (;;) {
+    const client = new ImapFlow({
+      host: "imap.gmail.com",
+      port: 993,
+      secure: true,
+      auth: { user: account.user, pass: account.pass },
+      logger: false,
+    });
+    try {
+      await client.connect();
+      await client.mailboxOpen("INBOX", { readOnly: true });
+      client.on("exists", onNewMail);
+      await new Promise<void>((resolve) => {
+        client.on("close", () => resolve());
+        client.on("error", () => resolve());
+      });
+    } catch (err) {
+      console.error(`Mails (écoute ${account.user}) :`, (err as Error).message);
+    } finally {
+      client.removeAllListeners();
+      await client.logout().catch(() => {});
+    }
+    await new Promise((r) => setTimeout(r, 30 * 1000));
+  }
 }
 
 export function startMailScheduler() {
@@ -307,7 +352,9 @@ export function startMailScheduler() {
   }
   const tick = () => runMail().catch((err) => console.error("Mails :", err));
   setTimeout(tick, 30 * 1000);
+  // Safety net behind the live watch below.
   setInterval(tick, 30 * 60 * 1000);
+  for (const account of mailAccounts()) void watchInbox(account);
 }
 
 export function listMails(days: number, minImportance = 0) {
