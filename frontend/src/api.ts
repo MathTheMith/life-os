@@ -460,3 +460,34 @@ export async function login(password: string): Promise<void> {
     throw new Error(err.error || 'Erreur de connexion')
   }
 }
+
+export interface ProfileSection {
+  key: string
+  title: string
+  hint: string
+  content: string
+}
+
+export async function fetchProfile(): Promise<ProfileSection[]> {
+  const res = await fetch('/api/profile')
+  if (!res.ok) throw new Error('Erreur chargement profil')
+  return res.json()
+}
+
+export async function saveProfileSection(key: string, content: string): Promise<void> {
+  const res = await fetch(`/api/profile/${key}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content }),
+  })
+  if (!res.ok) throw new Error('Erreur enregistrement')
+}
+
+export async function draftProfile(): Promise<Record<string, string>> {
+  const res = await fetch('/api/profile/draft', { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || 'Erreur brouillon')
+  }
+  return res.json()
+}

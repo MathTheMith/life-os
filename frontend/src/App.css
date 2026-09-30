@@ -188,8 +188,9 @@
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  min-width: 68px;
-  padding: 8px 10px;
+  /* 5 tabs must fit a 360px-wide phone. */
+  min-width: 58px;
+  padding: 8px 8px;
   border: none;
   border-radius: 999px;
   background: transparent;
@@ -1642,4 +1643,36 @@
   font-size: 0.88rem;
   font-family: inherit;
   resize: vertical;
+}
+
+/* ---------- Profile ---------- */
+
+.profile-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.profile-intro {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.profile-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin: -6px 0 10px;
+}
+
+.profile-textarea {
+  width: 100%;
+  min-height: 110px;
+  box-sizing: border-box;
+}
+
+.profile-draft-badge {
+  font-size: 0.72rem;
+  color: var(--accent-strong);
+  margin-top: 6px;
 }

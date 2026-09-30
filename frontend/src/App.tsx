@@ -4,19 +4,21 @@ import { Budget } from './components/Budget'
 import { Import } from './components/Import'
 import { Motorsport } from './components/Motorsport'
 import { TodoPage } from './components/Todo'
+import { ProfilePage } from './components/Profile'
 import { BankExpiryBanner } from './components/BankExpiryBanner'
 import { Login } from './components/Login'
 import { fetchAuthStatus, UNAUTHORIZED_EVENT } from './api'
-import { GaugeIcon, ChecklistIcon, ChatIcon, FlagIcon, UploadIcon, ArrowLeftIcon } from './icons'
+import { GaugeIcon, ChecklistIcon, ChatIcon, FlagIcon, UploadIcon, ArrowLeftIcon, UserIcon } from './icons'
 import './App.css'
 
-type Tab = 'chat' | 'budget' | 'todo' | 'motorsport'
+type Tab = 'profile' | 'chat' | 'budget' | 'todo' | 'motorsport'
 
 const TABS: { id: Tab; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'budget', label: 'Budget', icon: GaugeIcon },
   { id: 'motorsport', label: 'Motorsport', icon: FlagIcon },
   { id: 'todo', label: 'Todo', icon: ChecklistIcon },
   { id: 'chat', label: 'Chat', icon: ChatIcon },
+  { id: 'profile', label: 'Moi', icon: UserIcon },
 ]
 
 const TAB_STORAGE_KEY = 'life-os-active-tab'
@@ -103,6 +105,7 @@ function MainApp() {
             {tab === 'budget' && <Budget key={budgetKey} />}
             {tab === 'motorsport' && <Motorsport />}
             {tab === 'todo' && <TodoPage />}
+            {tab === 'profile' && <ProfilePage />}
           </div>
         </main>
 

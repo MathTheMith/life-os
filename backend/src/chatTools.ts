@@ -5,6 +5,7 @@ import { db } from "./db.js";
 import { getBudgetSummary } from "./routes/budget.js";
 import { listEnvelopesWithSummary } from "./routes/envelope.js";
 import { listGoalsWithStats } from "./routes/goals.js";
+import { PROFILE_SECTIONS, setProfileSection } from "./routes/profile.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -134,6 +135,23 @@ const UPDATE_CHAT_MEMORY_TOOL = {
   },
 };
 
+const UPDATE_PROFILE_SECTION_TOOL = {
+  type: "function",
+  function: {
+    name: "update_profile_section",
+    description:
+      "Remplace le contenu d'une section du profil de Mathéo (ses rêves, objectifs, valeurs...). N'appeler que si Mathéo a explicitement dit oui à la modification proposée. Fournir le texte complet de la section, pas juste l'ajout.",
+    parameters: {
+      type: "object",
+      properties: {
+        key: { type: "string", enum: PROFILE_SECTIONS.map((s) => s.key), description: "Section à modifier." },
+        content: { type: "string", description: "Texte complet et mis à jour de la section." },
+      },
+      required: ["key", "content"],
+    },
+  },
+};
+
 const MAX_ASSISTANT_NOTES_CHARS = 2000;
 
 const UPDATE_ASSISTANT_NOTES_TOOL = {
@@ -154,8 +172,8 @@ const UPDATE_ASSISTANT_NOTES_TOOL = {
 
 export function toolDefinitions(hasChatMemory: boolean) {
   return hasChatMemory
-    ? [...READ_TOOLS, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_CHAT_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL]
-    : [...READ_TOOLS, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL];
+    ? [...READ_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_CHAT_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL]
+    : [...READ_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL];
 }
 
 // No LIMIT: Gemini's context window has plenty of headroom for the full
@@ -222,6 +240,9 @@ export function executeTool(
         return JSON.stringify(getBankConnections());
       case "get_motorsport_plan":
         return getMotorsportPlan();
+      case "update_profile_section":
+        setProfileSection(String(args.key ?? ""), String(args.content ?? ""));
+        return JSON.stringify({ ok: true });
       case "update_global_memory":
         db.prepare("UPDATE assistant_memory SET content = ? WHERE id = 1").run(String(args.content ?? ""));
         return JSON.stringify({ ok: true });

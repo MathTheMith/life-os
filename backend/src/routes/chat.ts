@@ -3,11 +3,11 @@ import { db } from "../db.js";
 import { toolDefinitions, executeTool, getGlobalMemory, getAssistantNotes } from "../chatTools.js";
 import { saveImageDataUrl } from "../imageStore.js";
 import { describeImage } from "../imageDescribe.js";
+import { callAiService } from "../aiClient.js";
+import { getProfileForPrompt } from "./profile.js";
 
 export const chatRouter = Router();
 
-const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:4000";
-const internalSecret = process.env.INTERNAL_SECRET;
 const MAX_TOOL_ROUNDS = 5;
 // Generous but still bounded — a conversation shouldn't grow the request
 // unboundedly forever, but Gemini's free-tier token budget (250k+ TPM) is
@@ -41,46 +41,6 @@ chatRouter.post("/describe-image", async (req, res) => {
     res.status(502).json({ error: (err as Error).message || "Description d'image indisponible." });
   }
 });
-
-// Gemini's OpenAI-compat layer sometimes wraps errors in an array
-// ([{ error: {...} }]) instead of a plain object ({ error: {...} }) — handle
-// both shapes rather than silently falling back to a useless generic message.
-function extractErrorMessage(data: any): string | undefined {
-  const errorObj = Array.isArray(data) ? data[0]?.error : data?.error;
-  return typeof errorObj === "string" ? errorObj : errorObj?.message;
-}
-
-// 429 (per-minute quota) names the exact remaining wait ("Please try again
-// in 5.8875s") when the provider is Groq; 503 (Gemini's transient "model
-// overloaded") doesn't, so this just falls back to a short fixed wait.
-function parseRetryAfterMs(message: string): number {
-  const match = message.match(/try again in ([\d.]+)s/i);
-  const seconds = match ? Number.parseFloat(match[1]) : 3;
-  return Math.ceil(seconds * 1000) + 500;
-}
-
-async function callAiService(body: unknown, attempt = 0): Promise<any> {
-  const response = await fetch(`${aiServiceUrl}/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(internalSecret ? { "x-internal-secret": internalSecret } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json();
-
-  const isRetryable = response.status === 429 || response.status === 503;
-  if (isRetryable && attempt < 2) {
-    await new Promise((resolve) => setTimeout(resolve, parseRetryAfterMs(extractErrorMessage(data) || "")));
-    return callAiService(body, attempt + 1);
-  }
-
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(data) || `ai-service a répondu ${response.status}`);
-  }
-  return data;
-}
 
 chatRouter.post("/", async (req, res) => {
   const {
@@ -131,14 +91,16 @@ chatRouter.post("/", async (req, res) => {
 
   const globalMemory = getGlobalMemory();
   let systemPrompt =
-    "Tu es l'assistant personnel de Mathéo dans son application de suivi financier et motorsport. " +
-    "Sois précis, méthodique et logique — l'objectif est de l'aider concrètement à avancer vers son but de devenir pilote professionnel. Sois concis et direct. " +
+    "Tu es l'assistant personnel de Mathéo dans Life OS, son application de vie (finances, objectifs, motorsport, carrière). " +
+    "Ton rôle : l'aider concrètement à avancer vers les rêves et objectifs décrits dans son profil ci-dessous, qui priment sur tout le reste. Sois précis, méthodique, concis et direct. " +
     "Utilise les outils de lecture pour toute question précise sur ses finances, objectifs ou courses plutôt que de deviner à partir de ce que tu crois savoir. " +
     "Si une question nécessite plusieurs outils, demande-les tous en un seul tour (plusieurs appels dans la même réponse) plutôt qu'un par un dans des tours séparés — le budget de requêtes disponible est limité. " +
-    "N'appelle update_global_memory ou update_chat_memory QUE si Mathéo a explicitement dit oui ou demandé de retenir/changer quelque chose. " +
-    "Si tu remarques toi-même un changement qui mériterait d'être retenu dans ces mémoires (nouvel objectif, préférence, changement de situation...), propose-le-lui dans ta réponse et attends sa confirmation avant d'appeler l'outil. " +
+    "N'appelle update_profile_section, update_global_memory ou update_chat_memory QUE si Mathéo a explicitement dit oui ou demandé de retenir/changer quelque chose. " +
+    "Si tu remarques toi-même un changement qui mériterait d'être retenu (nouveau rêve ou objectif, préférence, changement de situation...), propose-le-lui dans ta réponse et attends sa confirmation avant d'appeler l'outil. " +
     "En revanche, tu as ta propre mémoire personnelle (« Tes notes ») : c'est à toi, tu y écris quand tu veux via update_assistant_notes, sans demander la permission — ce que tu apprends sur Mathéo, sa façon de communiquer, ce qui marche avec lui, tes observations. Garde-la courte, fusionne et supprime l'obsolète plutôt que d'empiler.";
 
+  const profile = getProfileForPrompt();
+  if (profile) systemPrompt += `\n\n## Profil de Mathéo (écrit par lui, la référence pour tout conseil)\n${profile}`;
   if (globalMemory) systemPrompt += `\n\n## Mémoire globale (partagée entre toutes les conversations)\n${globalMemory}`;
   const assistantNotes = getAssistantNotes();
   if (assistantNotes) systemPrompt += `\n\n## Tes notes personnelles (ta propre mémoire, tu la gères seul)\n${assistantNotes}`;
