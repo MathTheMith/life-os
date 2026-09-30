@@ -510,3 +510,60 @@ export async function finishEveningChat(conversationId: number): Promise<string>
   const data = await res.json()
   return data.message as string
 }
+
+export type WatchCategory = 'stage' | 'alternance' | 'emploi' | 'bon_plan' | 'evenement' | 'actu'
+export type WatchStatus = 'new' | 'seen' | 'interested' | 'dismissed'
+
+export interface WatchItem {
+  id: number
+  category: WatchCategory
+  title: string
+  company: string | null
+  location: string | null
+  url: string | null
+  score: number
+  reason: string | null
+  status: WatchStatus
+  first_seen_at: string
+  source_name: string | null
+}
+
+export interface WatchSource {
+  id: number
+  name: string
+  url: string
+  kind: 'page' | 'workday'
+  enabled: number
+  last_checked_at: string | null
+  last_error: string | null
+}
+
+async function json<T>(res: Response, fallback: string): Promise<T> {
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || fallback)
+  }
+  return res.json()
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' }
+
+export const fetchWatchItems = async () => json<WatchItem[]>(await fetch('/api/watch/items'), 'Erreur chargement veille')
+
+export const setWatchItemStatus = async (id: number, status: WatchStatus) =>
+  json(await fetch(`/api/watch/items/${id}/status`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ status }) }), 'Erreur')
+
+export const markWatchSeen = async () => json(await fetch('/api/watch/items/mark-seen', { method: 'POST' }), 'Erreur')
+
+export const fetchWatchSources = async () => json<WatchSource[]>(await fetch('/api/watch/sources'), 'Erreur chargement sources')
+
+export const addWatchSource = async (name: string, url: string) =>
+  json(await fetch('/api/watch/sources', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ name, url }) }), "Erreur d'ajout")
+
+export const deleteWatchSource = async (id: number) =>
+  json(await fetch(`/api/watch/sources/${id}`, { method: 'DELETE' }), 'Erreur de suppression')
+
+export const fetchWatchStatus = async () =>
+  json<{ running: boolean; lastRun: string | null }>(await fetch('/api/watch/status'), 'Erreur')
+
+export const runWatchNow = async () => json(await fetch('/api/watch/run', { method: 'POST' }), 'Erreur de lancement')

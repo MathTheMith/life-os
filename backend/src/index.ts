@@ -11,6 +11,8 @@ import { todosRouter } from "./routes/todos.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { profileRouter } from "./routes/profile.js";
 import { journalRouter } from "./routes/journal.js";
+import { watchRouter } from "./routes/watch.js";
+import { startWatchScheduler } from "./watch.js";
 import { uploadsDir } from "./db.js";
 import { authRouter, requireAuth } from "./auth.js";
 
@@ -41,7 +43,9 @@ app.use("/api/todos", todosRouter);
 app.use("/api/conversations", conversationsRouter);
 app.use("/api/profile", profileRouter);
 app.use("/api/journal", journalRouter);
+app.use("/api/watch", watchRouter);
 
 app.listen(port, () => {
   console.log(`life-os backend listening on http://localhost:${port}`);
+  startWatchScheduler();
 });

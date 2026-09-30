@@ -5,10 +5,11 @@ import { Import } from './components/Import'
 import { Motorsport } from './components/Motorsport'
 import { TodoPage } from './components/Todo'
 import { ProfilePage } from './components/Profile'
+import { WatchPage } from './components/Watch'
 import { BankExpiryBanner } from './components/BankExpiryBanner'
 import { Login } from './components/Login'
 import { fetchAuthStatus, UNAUTHORIZED_EVENT } from './api'
-import { GaugeIcon, ChecklistIcon, ChatIcon, FlagIcon, UploadIcon, ArrowLeftIcon, UserIcon } from './icons'
+import { GaugeIcon, ChecklistIcon, ChatIcon, FlagIcon, UploadIcon, ArrowLeftIcon, UserIcon, RadarIcon } from './icons'
 import './App.css'
 
 type Tab = 'profile' | 'chat' | 'budget' | 'todo' | 'motorsport'
@@ -49,14 +50,15 @@ function App() {
 function MainApp() {
   const [tab, setTab] = useState<Tab>(loadInitialTab)
   const [budgetKey, setBudgetKey] = useState(0)
-  const [showImport, setShowImport] = useState(false)
+  // Full-screen pages opened from the header, outside the dock tabs.
+  const [overlay, setOverlay] = useState<'import' | 'watch' | null>(null)
 
   function selectTab(next: Tab) {
     setTab(next)
     localStorage.setItem(TAB_STORAGE_KEY, next)
   }
 
-  if (showImport) {
+  if (overlay) {
     return (
       <div className="app-shell">
         <div className="ambient-glow ambient-glow--1" />
@@ -64,16 +66,17 @@ function MainApp() {
 
         <div className="app">
           <header className="app-header">
-            <button className="icon-button" onClick={() => setShowImport(false)} aria-label="Retour">
+            <button className="icon-button" onClick={() => setOverlay(null)} aria-label="Retour">
               <ArrowLeftIcon size={18} />
             </button>
-            <span className="app-header-title">Importer</span>
+            <span className="app-header-title">{overlay === 'import' ? 'Importer' : 'Veille'}</span>
             <span className="app-header-spacer" />
           </header>
 
           <main className="app-content">
             <div className="app-scroll">
-              <Import onImported={() => setBudgetKey((k) => k + 1)} />
+              {overlay === 'import' && <Import onImported={() => setBudgetKey((k) => k + 1)} />}
+              {overlay === 'watch' && <WatchPage />}
             </div>
           </main>
         </div>
@@ -88,14 +91,16 @@ function MainApp() {
 
       <div className={tab === 'chat' ? 'app app--wide' : 'app'}>
         <header className="app-header">
-          <span className="app-header-spacer" />
+          <button className="icon-button" onClick={() => setOverlay('watch')} aria-label="Veille">
+            <RadarIcon size={18} />
+          </button>
           <span className="app-header-title">Life OS</span>
-          <button className="icon-button" onClick={() => setShowImport(true)} aria-label="Importer">
+          <button className="icon-button" onClick={() => setOverlay('import')} aria-label="Importer">
             <UploadIcon size={18} />
           </button>
         </header>
 
-        <BankExpiryBanner onGoToImport={() => setShowImport(true)} />
+        <BankExpiryBanner onGoToImport={() => setOverlay('import')} />
 
         <main className="app-content">
           {/* Keying by tab gives each one its own fresh scroll container —

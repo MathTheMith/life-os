@@ -6,6 +6,7 @@ import { describeImage } from "../imageDescribe.js";
 import { callAiService } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
 import { getJournalForPrompt, getEveningInstructions } from "./journal.js";
+import { getWatchForPrompt } from "../watch.js";
 
 export const chatRouter = Router();
 
@@ -109,6 +110,8 @@ chatRouter.post("/", async (req, res) => {
   if (conversation?.memory) systemPrompt += `\n\n## Mémoire propre à cette conversation\n${conversation.memory}`;
   const journal = getJournalForPrompt(14);
   if (journal) systemPrompt += `\n\n## Journal des 14 derniers jours (résumés de ses chats du soir)\n${journal}`;
+  const watch = getWatchForPrompt();
+  if (watch) systemPrompt += `\n\n## Veille : trouvailles pertinentes des 7 derniers jours (score sur 100)\n${watch}`;
   if (conversation?.kind === "soir") systemPrompt += `\n\n${getEveningInstructions()}`;
 
   const tools = toolDefinitions(!!conversationId);

@@ -166,3 +166,13 @@ export function MoonIcon({ size = 20 }: IconProps) {
     </svg>
   )
 }
+
+export function RadarIcon({ size = 20 }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...base}>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <path d="M12 12l6-6" />
+    </svg>
+  )
+}
