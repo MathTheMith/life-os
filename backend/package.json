@@ -14,12 +14,15 @@
     "csv-parse": "^7.0.2",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
+    "imapflow": "^2.1.2",
+    "mailparser": "^3.9.32",
     "multer": "^2.0.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/mailparser": "^3.9.0",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.7.5",
     "tsx": "^4.19.1",

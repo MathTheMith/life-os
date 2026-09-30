@@ -567,3 +567,46 @@ export const fetchWatchStatus = async () =>
   json<{ running: boolean; lastRun: string | null }>(await fetch('/api/watch/status'), 'Erreur')
 
 export const runWatchNow = async () => json(await fetch('/api/watch/run', { method: 'POST' }), 'Erreur de lancement')
+
+export interface AgendaEvent {
+  id: number
+  title: string
+  start_at: string
+  end_at: string | null
+  all_day: number
+  notes: string | null
+  remind_before_min: number | null
+  source: 'user' | 'chat' | 'journal' | 'mail'
+}
+
+export const fetchAgenda = async () => json<AgendaEvent[]>(await fetch('/api/agenda'), 'Erreur chargement agenda')
+
+export const addAgendaEvent = async (event: { title: string; start: string; notes?: string; remind_before_min?: number | null }) =>
+  json<AgendaEvent>(await fetch('/api/agenda', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(event) }), "Erreur d'ajout")
+
+export const deleteAgendaEvent = async (id: number) =>
+  json(await fetch(`/api/agenda/${id}`, { method: 'DELETE' }), 'Erreur de suppression')
+
+export interface MailItem {
+  id: number
+  account: string
+  from_name: string | null
+  from_addr: string | null
+  subject: string | null
+  date: string
+  importance: number | null
+  category: string | null
+  summary: string | null
+  action: string | null
+  ai_status: 'pending' | 'done' | 'excluded'
+}
+
+export const fetchMails = async () => json<MailItem[]>(await fetch('/api/mail'), 'Erreur chargement mails')
+
+export const fetchMailStatus = async () =>
+  json<{ running: boolean; lastRun: string | null; accounts: { address: string; error: string | null }[] }>(
+    await fetch('/api/mail/status'),
+    'Erreur',
+  )
+
+export const runMailNow = async () => json(await fetch('/api/mail/run', { method: 'POST' }), 'Erreur de lancement')

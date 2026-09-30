@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { db } from "./db.js";
 import { callAiService } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
+import { getState, setState, parisNow } from "./state.js";
 
 // Daily web watch. Each source is a page (career page, job board listing,
 // circuit or karting site) or a Workday job portal. Once a day the text of
@@ -38,10 +39,6 @@ db.exec(`
     last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS app_state (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-  );
 `);
 
 // Starting list, from the internship prospection work (only pages checked to
@@ -235,30 +232,6 @@ let running = false;
 
 export function isWatchRunning() {
   return running;
-}
-
-export function getState(key: string): string | undefined {
-  return (db.prepare("SELECT value FROM app_state WHERE key = ?").get(key) as { value: string } | undefined)?.value;
-}
-
-export function setState(key: string, value: string) {
-  db.prepare("INSERT INTO app_state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
-}
-
-export function parisNow() {
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat("en-CA", {
-      timeZone: "Europe/Paris",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      hour12: false,
-    })
-      .formatToParts(new Date())
-      .map((p) => [p.type, p.value])
-  );
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) % 24 };
 }
 
 export async function runWatch(): Promise<{ added: number }> {

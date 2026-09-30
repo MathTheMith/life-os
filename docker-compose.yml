@@ -25,6 +25,8 @@ services:
       - PUBLIC_URL=${PUBLIC_URL:?PUBLIC_URL manquant dans .env}
       - APP_PASSWORD=${APP_PASSWORD:?APP_PASSWORD manquant dans .env}
       - LAUNCHER_TOKEN=${LAUNCHER_TOKEN:-}
+      - MAIL_ACCOUNTS=${MAIL_ACCOUNTS:-}
+      - MAIL_EXCLUDE=${MAIL_EXCLUDE:-}
       - ENABLEBANKING_APP_ID=${ENABLEBANKING_APP_ID:-}
       - ENABLEBANKING_PRIVATE_KEY_PATH=/run/secrets/enablebanking_private.key
     volumes:

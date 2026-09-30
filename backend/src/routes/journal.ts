@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { callAiService } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
+import { addEvent } from "./agenda.js";
 
 // Evening journal, fed by the "chat du soir": a daily conversation where the
 // AI asks about the day. When the user finishes it, the transcript becomes
@@ -108,7 +109,7 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
 
   const prompt =
     "Tu lis le chat du soir de Mathéo (sa discussion avec son assistant sur sa journée). Réponds uniquement avec un objet JSON :\n" +
-    '{"resume": "une phrase factuelle", "humeur": 1-5 ou null, "energie": 1-5 ou null, "retour": "2 ou 3 phrases pour lui", "faits": ["..."], "questions": ["..."]}\n\n' +
+    '{"resume": "une phrase factuelle", "humeur": 1-5 ou null, "energie": 1-5 ou null, "retour": "2 ou 3 phrases pour lui", "faits": ["..."], "questions": ["..."], "evenements": [{"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ"}]}\n\n' +
     "- humeur, energie : la note qu'il a donnée, sinon ton estimation d'après ce qu'il dit, null si impossible à dire.\n" +
     "- resume : ce qui s'est passé, en une phrase, à la troisième personne.\n" +
     "- retour : direct, concret, sans flatterie ni morale. Relie la journée à ses rêves et objectifs du profil quand c'est pertinent, " +
@@ -117,7 +118,8 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
     "événement important, date à venir). Pas de répétition de l'humeur du jour. Liste vide si rien de durable.\n" +
     "- questions : 0 à 2 questions que TU aimerais lui poser au prochain chat du soir, pour mieux le connaître ou le suivre : " +
     "un manque dans son profil (lignes « À compléter », sujet absent), une situation restée floue, le suivi d'un événement annoncé. " +
-    "Pas de question déjà répondue dans le profil ou le journal.\n\n" +
+    "Pas de question déjà répondue dans le profil ou le journal.\n" +
+    `- evenements : les rendez-vous, courses, échéances ou choses à faire à une date précise qu'il mentionne, à venir (heure de Paris, nous sommes le ${entry.date}). Liste vide sinon.\n\n` +
     `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n` +
     `## Jours précédents\n${previous.map((p) => `- ${p.date} : ${p.ai_summary}`).join("\n") || "(aucun)"}\n\n` +
     `## Entrée du ${entry.date}` +
@@ -132,6 +134,14 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
     const strings = (value: unknown) => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
     const facts = strings(parsed.faits);
     const questions = strings(parsed.questions).slice(0, 2);
+    for (const ev of Array.isArray(parsed.evenements) ? parsed.evenements : []) {
+      if (!ev?.titre || !ev?.debut) continue;
+      try {
+        addEvent({ title: String(ev.titre), start: String(ev.debut), notes: "Depuis ton chat du soir", source: "journal" });
+      } catch (err) {
+        console.error("Journal → agenda :", (err as Error).message);
+      }
+    }
     db.prepare(
       `UPDATE journal_entries SET ai_status = 'done', ai_summary = ?, ai_feedback = ?, ai_facts = ?, ai_questions = ?,
        mood = COALESCE(?, mood), energy = COALESCE(?, energy) WHERE id = ?`

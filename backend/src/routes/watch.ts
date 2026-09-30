@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { runWatch, isWatchRunning, getState } from "../watch.js";
+import { runWatch, isWatchRunning } from "../watch.js";
+import { getState } from "../state.js";
 
 export const watchRouter = Router();
 

@@ -7,6 +7,8 @@ import { callAiService } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
 import { getJournalForPrompt, getEveningInstructions } from "./journal.js";
 import { getWatchForPrompt } from "../watch.js";
+import { getAgendaForPrompt } from "./agenda.js";
+import { getMailForPrompt } from "../mail.js";
 
 export const chatRouter = Router();
 
@@ -102,6 +104,20 @@ chatRouter.post("/", async (req, res) => {
     "Si tu remarques toi-même un changement qui mériterait d'être retenu (nouveau rêve ou objectif, préférence, changement de situation...), propose-le-lui dans ta réponse et attends sa confirmation avant d'appeler l'outil. " +
     "En revanche, tu as ta propre mémoire personnelle (« Tes notes ») : c'est à toi, tu y écris quand tu veux via update_assistant_notes, sans demander la permission — ce que tu apprends sur Mathéo, sa façon de communiquer, ce qui marche avec lui, tes observations. Garde-la courte, fusionne et supprime l'obsolète plutôt que d'empiler.";
 
+  const now = new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date());
+  systemPrompt +=
+    `\n\nNous sommes le ${now} (heure de Paris). ` +
+    "Tu tiens son agenda : dès qu'il mentionne un rendez-vous, une échéance, une course ou te demande un rappel, ajoute-le directement avec add_agenda_event (sans demander), puis dis-lui ce que tu as ajouté. " +
+    "Pour un rappel « dans X jours », calcule la date à partir d'aujourd'hui.";
+
   const profile = getProfileForPrompt();
   if (profile) systemPrompt += `\n\n## Profil de Mathéo (écrit par lui, la référence pour tout conseil)\n${profile}`;
   if (globalMemory) systemPrompt += `\n\n## Mémoire globale (partagée entre toutes les conversations)\n${globalMemory}`;
@@ -110,6 +126,10 @@ chatRouter.post("/", async (req, res) => {
   if (conversation?.memory) systemPrompt += `\n\n## Mémoire propre à cette conversation\n${conversation.memory}`;
   const journal = getJournalForPrompt(14);
   if (journal) systemPrompt += `\n\n## Journal des 14 derniers jours (résumés de ses chats du soir)\n${journal}`;
+  const agenda = getAgendaForPrompt();
+  if (agenda) systemPrompt += `\n\n## Agenda des 3 prochaines semaines\n${agenda}`;
+  const mails = getMailForPrompt();
+  if (mails) systemPrompt += `\n\n## Mails importants des 3 derniers jours\n${mails}`;
   const watch = getWatchForPrompt();
   if (watch) systemPrompt += `\n\n## Veille : trouvailles pertinentes des 7 derniers jours (score sur 100)\n${watch}`;
   if (conversation?.kind === "soir") systemPrompt += `\n\n${getEveningInstructions()}`;

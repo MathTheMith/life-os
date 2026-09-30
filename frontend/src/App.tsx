@@ -3,13 +3,14 @@ import { Chat } from './components/Chat'
 import { Budget } from './components/Budget'
 import { Import } from './components/Import'
 import { Motorsport } from './components/Motorsport'
-import { TodoPage } from './components/Todo'
+import { PlanningPage } from './components/Planning'
 import { ProfilePage } from './components/Profile'
 import { WatchPage } from './components/Watch'
+import { MailsPage } from './components/Mails'
 import { BankExpiryBanner } from './components/BankExpiryBanner'
 import { Login } from './components/Login'
 import { fetchAuthStatus, UNAUTHORIZED_EVENT } from './api'
-import { GaugeIcon, ChecklistIcon, ChatIcon, FlagIcon, UploadIcon, ArrowLeftIcon, UserIcon, RadarIcon } from './icons'
+import { GaugeIcon, CalendarIcon, ChatIcon, FlagIcon, UploadIcon, ArrowLeftIcon, UserIcon, RadarIcon } from './icons'
 import './App.css'
 
 type Tab = 'profile' | 'chat' | 'budget' | 'todo' | 'motorsport'
@@ -17,7 +18,7 @@ type Tab = 'profile' | 'chat' | 'budget' | 'todo' | 'motorsport'
 const TABS: { id: Tab; label: string; icon: ComponentType<{ size?: number }> }[] = [
   { id: 'budget', label: 'Budget', icon: GaugeIcon },
   { id: 'motorsport', label: 'Motorsport', icon: FlagIcon },
-  { id: 'todo', label: 'Todo', icon: ChecklistIcon },
+  { id: 'todo', label: 'Planning', icon: CalendarIcon },
   { id: 'chat', label: 'Chat', icon: ChatIcon },
   { id: 'profile', label: 'Moi', icon: UserIcon },
 ]
@@ -76,7 +77,7 @@ function MainApp() {
           <main className="app-content">
             <div className="app-scroll">
               {overlay === 'import' && <Import onImported={() => setBudgetKey((k) => k + 1)} />}
-              {overlay === 'watch' && <WatchPage />}
+              {overlay === 'watch' && <RadarPage />}
             </div>
           </main>
         </div>
@@ -109,7 +110,7 @@ function MainApp() {
             {tab === 'chat' && <Chat />}
             {tab === 'budget' && <Budget key={budgetKey} />}
             {tab === 'motorsport' && <Motorsport />}
-            {tab === 'todo' && <TodoPage />}
+            {tab === 'todo' && <PlanningPage />}
             {tab === 'profile' && <ProfilePage />}
           </div>
         </main>
@@ -127,6 +128,30 @@ function MainApp() {
           ))}
         </nav>
       </div>
+    </div>
+  )
+}
+
+// The header's radar page: what the watch found on the web, and the mails.
+function RadarPage() {
+  const [view, setView] = useState<'web' | 'mails'>('web')
+  return (
+    <div className="radar-page">
+      <div className="segmented radar-switch">
+        <button
+          className={view === 'web' ? 'segmented-option segmented-option--active' : 'segmented-option'}
+          onClick={() => setView('web')}
+        >
+          Internet
+        </button>
+        <button
+          className={view === 'mails' ? 'segmented-option segmented-option--active' : 'segmented-option'}
+          onClick={() => setView('mails')}
+        >
+          Mails
+        </button>
+      </div>
+      {view === 'web' ? <WatchPage /> : <MailsPage />}
     </div>
   )
 }

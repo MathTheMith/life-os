@@ -7,6 +7,8 @@ import { listEnvelopesWithSummary } from "./routes/envelope.js";
 import { listGoalsWithStats } from "./routes/goals.js";
 import { PROFILE_SECTIONS, setProfileSection } from "./routes/profile.js";
 import { listJournal } from "./routes/journal.js";
+import { addEvent, updateEvent, deleteEvent, listAgenda } from "./routes/agenda.js";
+import { listMails } from "./mail.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -150,6 +152,85 @@ const UPDATE_CHAT_MEMORY_TOOL = {
   },
 };
 
+const AGENDA_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "get_agenda",
+      description: "Événements de l'agenda entre deux dates (AAAA-MM-JJ). Les 3 prochaines semaines sont déjà dans le contexte.",
+      parameters: {
+        type: "object",
+        properties: {
+          from: { type: "string", description: "Date de début AAAA-MM-JJ." },
+          to: { type: "string", description: "Date de fin AAAA-MM-JJ." },
+        },
+        required: ["from", "to"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "add_agenda_event",
+      description:
+        "Ajoute un événement ou un rappel à l'agenda de Mathéo. À utiliser sans demander dès qu'il mentionne un rendez-vous, une échéance, une course ou demande un rappel.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Titre court et clair." },
+          start: { type: "string", description: "AAAA-MM-JJTHH:MM (heure de Paris), ou AAAA-MM-JJ pour une journée entière." },
+          end: { type: "string", description: "Fin, même format (optionnel)." },
+          notes: { type: "string", description: "Détails utiles (optionnel)." },
+          remind_before_min: { type: "number", description: "Minutes avant le début pour le rappel (défaut 60)." },
+        },
+        required: ["title", "start"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_agenda_event",
+      description: "Modifie un événement existant (id visible dans l'agenda du contexte). Fournir tous les champs à jour.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number" },
+          title: { type: "string" },
+          start: { type: "string" },
+          end: { type: "string" },
+          notes: { type: "string" },
+          remind_before_min: { type: "number" },
+        },
+        required: ["id", "title", "start"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_agenda_event",
+      description: "Supprime un événement de l'agenda (quand il est annulé ou que Mathéo le demande).",
+      parameters: { type: "object", properties: { id: { type: "number" } }, required: ["id"] },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_mails",
+      description:
+        "Mails reçus par Mathéo, déjà triés par l'IA (importance, catégorie, résumé, action). Les importants des 3 derniers jours sont déjà dans le contexte.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Nombre de jours à remonter (défaut 14)." },
+          min_importance: { type: "number", description: "Importance minimale sur 100 (défaut 0)." },
+        },
+      },
+    },
+  },
+];
+
 const UPDATE_PROFILE_SECTION_TOOL = {
   type: "function",
   function: {
@@ -187,8 +268,8 @@ const UPDATE_ASSISTANT_NOTES_TOOL = {
 
 export function toolDefinitions(hasChatMemory: boolean) {
   return hasChatMemory
-    ? [...READ_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_CHAT_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL]
-    : [...READ_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL];
+    ? [...READ_TOOLS, ...AGENDA_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_CHAT_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL]
+    : [...READ_TOOLS, ...AGENDA_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL];
 }
 
 // No LIMIT: Gemini's context window has plenty of headroom for the full
@@ -253,6 +334,21 @@ export function executeTool(
         return JSON.stringify(db.prepare("SELECT * FROM todos ORDER BY done ASC, created_at DESC").all());
       case "get_bank_connections":
         return JSON.stringify(getBankConnections());
+      case "get_agenda":
+        return JSON.stringify(listAgenda(String(args.from), String(args.to)));
+      case "add_agenda_event": {
+        const { event, created } = addEvent({ ...(args as any), source: "chat" });
+        return JSON.stringify({ ok: true, created, event });
+      }
+      case "update_agenda_event": {
+        const event = updateEvent(Number(args.id), args as any);
+        return JSON.stringify(event ? { ok: true, event } : { error: "Événement introuvable." });
+      }
+      case "delete_agenda_event":
+        deleteEvent(Number(args.id));
+        return JSON.stringify({ ok: true });
+      case "get_mails":
+        return JSON.stringify(listMails(Number(args.days) > 0 ? Number(args.days) : 14, Number(args.min_importance) || 0));
       case "get_journal":
         return JSON.stringify(listJournal(Number(args.days) > 0 ? Number(args.days) : 30));
       case "get_motorsport_plan":
