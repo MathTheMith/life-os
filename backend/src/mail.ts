@@ -3,7 +3,7 @@ import { simpleParser } from "mailparser";
 import { db } from "./db.js";
 import { callAiService } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
-import { addEvent, parisNowLocal } from "./routes/agenda.js";
+import { addEvent, parisNowLocal, parisToUtc } from "./routes/agenda.js";
 import { getState, setState } from "./state.js";
 
 // Read-only mail watch over IMAP (Gmail app passwords, set in .env as
@@ -139,6 +139,13 @@ interface PendingMail {
   snippet: string | null;
 }
 
+// Mails often mention dates that are already over (confirmations, reminders
+// of the day): only future ones belong in the agenda.
+function isUpcoming(start: string): boolean {
+  const at = /^\d{4}-\d{2}-\d{2}$/.test(start) ? parisToUtc(`${start}T23:59`) : parisToUtc(start);
+  return at.getTime() > Date.now();
+}
+
 async function triageBatch(mails: PendingMail[]) {
   const list = mails
     .map(
@@ -155,11 +162,12 @@ async function triageBatch(mails: PendingMail[]) {
     '", "resume": "une phrase", "action": "ce qu\'il doit faire, ou null", ' +
     '"evenement": {"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ", "rappels_min": [1440, 60]} ou null}]}\n\n' +
     "- importance : pour LUI, d'après son profil. Réponse d'une entreprise où il a candidaté, entretien, recruteur : 85 à 100. " +
-    "Administratif avec échéance, école, argent : 60 à 85. Perso : selon le contenu. Pub, newsletter, notification automatique : moins de 15.\n" +
+    "Administratif avec échéance, école, argent : 60 à 85. Résultats de ses propres sessions de karting ou de simracing (chronos) : 45 à 55, utiles pour son suivi pilote. " +
+    "Perso : selon le contenu. Pub, newsletter, notification automatique : moins de 15.\n" +
     "- categorie : candidature = réponse à une de ses candidatures ; recrutement = autre contact ou offre d'emploi/stage.\n" +
-    "- evenement : seulement si le mail fixe une date précise qui le concerne (entretien, rendez-vous, échéance, course, livraison importante). Heure de Paris. " +
+    "- evenement : seulement si le mail fixe une date précise À VENIR qui le concerne (entretien, rendez-vous, échéance, course, livraison importante). Heure de Paris. " +
     "rappels_min en minutes avant : entretien ou échéance importante [10080, 4320, 1440, 720, 60], rendez-vous [1440, 120].\n" +
-    "- resume et action : concrets, en français, pas de tirets cadratins.\n\n" +
+    "- resume et action : concrets, en français correct avec les accents, pas de tirets cadratins.\n\n" +
     `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n## Mails\n${list}`;
 
   const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
@@ -176,7 +184,7 @@ async function triageBatch(mails: PendingMail[]) {
     const category = (MAIL_CATEGORIES as readonly string[]).includes(r.categorie) ? r.categorie : "autre";
     const importance = Math.max(0, Math.min(100, Math.round(Number(r.importance) || 0)));
     update.run(importance, category, r.resume ? String(r.resume) : null, r.action ? String(r.action) : null, mail.id);
-    if (r.evenement?.titre && r.evenement?.debut) {
+    if (r.evenement?.titre && r.evenement?.debut && isUpcoming(String(r.evenement.debut))) {
       try {
         addEvent({
           title: String(r.evenement.titre),

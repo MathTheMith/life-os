@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { callAiService } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
-import { addEvent } from "./agenda.js";
+import { addEvent, parisToUtc } from "./agenda.js";
 
 // Evening journal, fed by the "chat du soir": a daily conversation where the
 // AI asks about the day. When the user finishes it, the transcript becomes
@@ -136,6 +136,8 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
     const questions = strings(parsed.questions).slice(0, 2);
     for (const ev of Array.isArray(parsed.evenements) ? parsed.evenements : []) {
       if (!ev?.titre || !ev?.debut) continue;
+      const debut = String(ev.debut);
+      if (parisToUtc(/^\d{4}-\d{2}-\d{2}$/.test(debut) ? `${debut}T23:59` : debut).getTime() < Date.now()) continue;
       try {
         addEvent({ title: String(ev.titre), start: String(ev.debut), notes: "Depuis ton chat du soir", source: "journal" });
       } catch (err) {
