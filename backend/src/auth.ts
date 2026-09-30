@@ -94,8 +94,12 @@ authRouter.post("/login", (req, res) => {
     return res.status(429).json({ error: "Trop de tentatives, réessaie dans 15 minutes." });
   }
 
-  const given = typeof req.body?.password === "string" ? req.body.password : "";
-  if (!safeEqual(given, password)) {
+  // Phone keyboards happily append a space after an autocompleted word, and
+  // may send a different Unicode form of the same characters.
+  const given = typeof req.body?.password === "string" ? req.body.password.trim().normalize("NFC") : "";
+  if (!safeEqual(given, password.trim().normalize("NFC"))) {
+    // Lengths only, never the value: enough to spot autocorrect/autofill.
+    console.warn(`Login refusé : ${given.length} caractères reçus, ${password.trim().length} attendus.`);
     if (!entry || now - entry.firstAt >= WINDOW_MS) attempts.set(ip, { count: 1, firstAt: now });
     else entry.count++;
     return res.status(401).json({ error: "Mot de passe incorrect." });
