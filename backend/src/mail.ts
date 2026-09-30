@@ -174,6 +174,17 @@ function ratingExamples(): string {
   return `Ce qu'il juge important :\n${fmt("important")}\n\nCe qu'il juge sans intérêt :\n${fmt("not")}`;
 }
 
+// The performance log fills itself from the result mails (Park Events and
+// the like) so the AI can follow the lap times without any manual entry.
+function recordLap(mail: PendingMail, chrono: { lieu?: string; session?: string; position?: number }, lap: number) {
+  const event = [chrono.lieu || mail.from_name || "Karting", chrono.session ? `session ${chrono.session}` : ""].filter(Boolean).join(", ");
+  const date = mail.date.slice(0, 10);
+  if (db.prepare("SELECT 1 FROM race_logs WHERE date = ? AND event = ?").get(date, event)) return;
+  db.prepare(
+    "INSERT INTO race_logs (date, event, type, course_chrono, position_finale, notes) VALUES (?, ?, 'karting', ?, ?, ?)"
+  ).run(date, event, lap, Number.isInteger(Number(chrono.position)) ? Number(chrono.position) : null, "Ajouté automatiquement depuis le mail de résultats.");
+}
+
 async function triageBatch(mails: PendingMail[]) {
   const list = mails
     .map(
@@ -188,7 +199,9 @@ async function triageBatch(mails: PendingMail[]) {
     '{"mails": [{"i": 0, "importance": 0-100, "categorie": "' +
     MAIL_CATEGORIES.join('" | "') +
     '", "resume": "une phrase", "action": "ce qu\'il doit faire, ou null", ' +
-    '"evenement": {"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ", "rappels_min": [1440, 60]} ou null}]}\n\n' +
+    '"evenement": {"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ", "rappels_min": [1440, 60]} ou null, ' +
+    '"chrono": {"lieu": "...", "session": "nom ou numéro de session", "meilleur_tour_s": 48.725, "position": 3 ou null} ou null}]}\n\n' +
+    "- chrono : seulement pour un mail qui donne SES propres résultats de karting ou de simracing (meilleur tour en secondes).\n" +
     "- importance : pour LUI, d'après son profil. Réponse d'une entreprise où il a candidaté, entretien, recruteur : 85 à 100. " +
     "Administratif avec échéance, école, argent : 60 à 85. Résultats de ses propres sessions de karting ou de simracing (chronos) : 45 à 55, utiles pour son suivi pilote. " +
     "Perso : selon le contenu. Pub, newsletter, notification automatique : moins de 15.\n" +
@@ -214,6 +227,8 @@ async function triageBatch(mails: PendingMail[]) {
     const category = (MAIL_CATEGORIES as readonly string[]).includes(r.categorie) ? r.categorie : "autre";
     const importance = Math.max(0, Math.min(100, Math.round(Number(r.importance) || 0)));
     update.run(importance, category, r.resume ? String(r.resume) : null, r.action ? String(r.action) : null, mail.id);
+    const lap = Number(r.chrono?.meilleur_tour_s);
+    if (r.chrono && Number.isFinite(lap) && lap > 0) recordLap(mail, r.chrono, lap);
     if (r.evenement?.titre && r.evenement?.debut && isUpcoming(String(r.evenement.debut))) {
       try {
         addEvent({

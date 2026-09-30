@@ -22,6 +22,9 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
+if (!(db.prepare("PRAGMA table_info(briefs)").all() as { name: string }[]).some((c) => c.name === "question")) {
+  db.exec("ALTER TABLE briefs ADD COLUMN question TEXT");
+}
 
 const BRIEF_HOUR = 9;
 // A brief missed by more than this (server down all morning) is skipped.
@@ -65,7 +68,9 @@ function pendingQuestions(): string {
   return row ? (JSON.parse(row.ai_questions) as string[]).map((q) => `- ${q}`).join("\n") : "";
 }
 
-export async function generateBrief(date: string): Promise<{ notification: { title: string; body: string }; content: string }> {
+export async function generateBrief(
+  date: string
+): Promise<{ notification: { title: string; body: string }; content: string; question: string | null }> {
   const section = (title: string, body: string) => `## ${title}\n${body || "(rien)"}`;
   const context = [
     section("Profil", getProfileForPrompt()),
@@ -87,7 +92,10 @@ export async function generateBrief(date: string): Promise<{ notification: { tit
       timeZone: "UTC",
     }).format(new Date(`${date}T12:00:00Z`))}. ` +
     "Réponds uniquement avec un objet JSON :\n" +
-    '{"notif_titre": "max 45 caractères", "notif_texte": "max 160 caractères, l\'essentiel de la journée", "brief": "markdown"}\n\n' +
+    '{"notif_titre": "max 45 caractères", "notif_texte": "max 160 caractères, l\'essentiel de la journée", "brief": "markdown", "question": "..."}\n\n' +
+    "question : UNE question courte que tu aimerais lui poser aujourd'hui pour mieux le connaître et mieux le conseiller : sa vie, ses ambitions, " +
+    "son matériel, ses finances, ses habitudes, ses goûts... Vise un vrai manque (ligne « À compléter » du profil, sujet jamais abordé), " +
+    "pas une question déjà répondue. Tutoiement. Elle est affichée à part, ne la mets pas dans le brief.\n\n" +
     "Le brief, court et lisible sur téléphone, en français avec accents, tutoiement, pas de tirets cadratins, uniquement les rubriques qui ont du contenu :\n" +
     "- 📅 **Aujourd'hui** : ce qui est prévu, avec les heures, et ce qu'il faut préparer.\n" +
     "- 📬 **Mails** : seulement ce qui demande une action ou compte vraiment.\n" +
@@ -107,16 +115,18 @@ export async function generateBrief(date: string): Promise<{ notification: { tit
       body: String(parsed.notif_texte ?? "").slice(0, 200),
     },
     content: String(parsed.brief ?? ""),
+    question: typeof parsed.question === "string" && parsed.question.trim() ? parsed.question.trim() : null,
   };
 }
 
 export async function runBrief(date = parisNow().date, notify = true) {
   const brief = await generateBrief(date);
   db.prepare(
-    `INSERT INTO briefs (date, notification, content) VALUES (?, ?, ?)
-     ON CONFLICT(date) DO UPDATE SET notification = excluded.notification, content = excluded.content, created_at = datetime('now')`
-  ).run(date, JSON.stringify(brief.notification), brief.content);
-  if (notify) await sendPush({ ...brief.notification, url: "/?tab=todo", tag: "brief" });
+    `INSERT INTO briefs (date, notification, content, question) VALUES (?, ?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET notification = excluded.notification, content = excluded.content,
+     question = excluded.question, created_at = datetime('now')`
+  ).run(date, JSON.stringify(brief.notification), brief.content, brief.question);
+  if (notify) await sendPush({ ...brief.notification, url: "/?tab=today", tag: "brief" });
   return brief;
 }
 
@@ -186,7 +196,7 @@ export function getTodayBriefForPrompt(): string {
 export const briefRouter = Router();
 
 briefRouter.get("/today", (_req, res) => {
-  const row = db.prepare("SELECT date, content, created_at FROM briefs WHERE date = ?").get(parisNow().date);
+  const row = db.prepare("SELECT date, content, question, created_at FROM briefs WHERE date = ?").get(parisNow().date);
   res.json(row ?? null);
 });
 
@@ -194,7 +204,7 @@ briefRouter.get("/today", (_req, res) => {
 briefRouter.post("/today", async (_req, res) => {
   try {
     const brief = await runBrief(parisNow().date, false);
-    res.json({ date: parisNow().date, content: brief.content });
+    res.json({ date: parisNow().date, content: brief.content, question: brief.question });
   } catch (err) {
     console.error("Brief :", err);
     res.status(502).json({ error: "Impossible de générer le brief, réessaie." });

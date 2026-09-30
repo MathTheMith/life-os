@@ -60,11 +60,12 @@ export async function fetchConversations(): Promise<Conversation[]> {
   return res.json()
 }
 
-export async function createConversation(): Promise<{ id: number }> {
+// assistantMessage opens the conversation with a message from the AI.
+export async function createConversation(opts: { title?: string; assistantMessage?: string } = {}): Promise<{ id: number }> {
   const res = await fetch('/api/conversations', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({}),
+    body: JSON.stringify(opts),
   })
   if (!res.ok) throw new Error('Erreur création conversation')
   return res.json()
@@ -627,6 +628,7 @@ export const sendTestPush = async () =>
 export interface Brief {
   date: string
   content: string
+  question?: string | null
   created_at?: string
 }
 
@@ -666,3 +668,16 @@ export const updateActionDraft = async (id: number, fields: { mail_to?: string |
   json<LifeAction>(await fetch(`/api/actions/${id}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(fields) }), 'Erreur')
 
 export const runActionsNow = async () => json(await fetch('/api/actions/run', { method: 'POST' }), 'Erreur')
+
+export interface JournalEntry {
+  id: number
+  date: string
+  mood: number | null
+  energy: number | null
+  ai_status: 'pending' | 'done' | 'error'
+  ai_summary: string | null
+  ai_feedback: string | null
+  ai_facts: string[]
+}
+
+export const fetchJournal = async (days = 90) => json<JournalEntry[]>(await fetch(`/api/journal?days=${days}`), 'Erreur chargement journal')

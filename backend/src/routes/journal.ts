@@ -187,7 +187,7 @@ export function getEveningInstructions(): string {
           .map((q) => `« ${q} »`)
           .join(", ")}. `
       : "") +
-    "Si une de ses réponses apporte une information durable absente de son profil, propose-lui de l'ajouter au profil (update_profile_section après son oui). " +
+    "Si une de ses réponses apporte une information durable absente de son profil, ajoute-la directement au profil (update_profile_section, en gardant le reste de la section) et dis-le-lui en une ligne. " +
     "Quand vous avez fait le tour, dis-lui qu'il peut toucher « Terminer » pour enregistrer son journal."
   );
 }

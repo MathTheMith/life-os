@@ -104,6 +104,7 @@ chatRouter.post("/", async (req, res) => {
     "Si une question nécessite plusieurs outils, demande-les tous en un seul tour (plusieurs appels dans la même réponse) plutôt qu'un par un dans des tours séparés — le budget de requêtes disponible est limité. " +
     "N'appelle update_profile_section, update_global_memory ou update_chat_memory QUE si Mathéo a explicitement dit oui ou demandé de retenir/changer quelque chose. " +
     "Si tu remarques toi-même un changement qui mériterait d'être retenu (nouveau rêve ou objectif, préférence, changement de situation...), propose-le-lui dans ta réponse et attends sa confirmation avant d'appeler l'outil. " +
+    "Exception : quand il répond à une question que TU lui as posée sur lui (sa vie, ses ambitions, son matériel, sa situation...), enregistre directement sa réponse dans la bonne section du profil avec update_profile_section, sans demander, en gardant le reste de la section, puis dis-lui en une ligne ce que tu as retenu. " +
     "En revanche, tu as ta propre mémoire personnelle (« Tes notes ») : c'est à toi, tu y écris quand tu veux via update_assistant_notes, sans demander la permission — ce que tu apprends sur Mathéo, sa façon de communiquer, ce qui marche avec lui, tes observations. Garde-la courte, fusionne et supprime l'obsolète plutôt que d'empiler.";
 
   const now = new Intl.DateTimeFormat("fr-FR", {

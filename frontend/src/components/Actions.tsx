@@ -25,7 +25,8 @@ function formatStart(start: string): string {
 }
 
 // What the AI prepared and waits for a yes on: nothing leaves without one.
-export function ActionsCard() {
+// hideWhenEmpty: on the Today page the card only shows up when something waits.
+export function ActionsCard({ hideWhenEmpty = false }: { hideWhenEmpty?: boolean }) {
   const [actions, setActions] = useState<LifeAction[] | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [searching, setSearching] = useState(false)
@@ -65,6 +66,7 @@ export function ActionsCard() {
   if (!actions) return null
   const open = actions.filter((a) => a.status === 'proposed' || a.status === 'accepted')
   const closed = actions.filter((a) => a.status === 'done' || a.status === 'dismissed')
+  if (hideWhenEmpty && open.length === 0) return null
 
   return (
     <div className="glass-card">

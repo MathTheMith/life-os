@@ -226,7 +226,7 @@ export function WatchPage() {
   )
 }
 
-function SourcesCard() {
+export function SourcesCard() {
   const [sources, setSources] = useState<WatchSource[] | null>(null)
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')

@@ -76,7 +76,7 @@ async function sendDueReminders() {
       const event = getEvent(reminder.event_id);
       if (!event) continue;
       const message = await writeMessage(event, reminder.offset_min);
-      await sendPush({ ...message, url: "/?tab=todo", tag: `event-${event.id}` });
+      await sendPush({ ...message, url: "/?tab=agenda", tag: `event-${event.id}` });
     }
   } finally {
     running = false;

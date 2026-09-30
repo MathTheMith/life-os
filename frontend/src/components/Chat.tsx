@@ -57,7 +57,7 @@ function formatDate(iso: string): string {
   return RELATIVE_FORMAT.format(new Date(iso.replace(' ', 'T') + 'Z'))
 }
 
-export function Chat({ openEvening = false }: { openEvening?: boolean }) {
+export function Chat({ openEvening = false, openConversationId }: { openEvening?: boolean; openConversationId?: number }) {
   const [activeChat, setActiveChat] = useState<ActiveChat>({ kind: 'temporary', messages: [] })
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -124,9 +124,14 @@ export function Chat({ openEvening = false }: { openEvening?: boolean }) {
     }
   }
 
-  // Opened from the evening reminder notification.
+  // Opened from the evening reminder notification, or from the question of
+  // the day (a conversation the AI already started).
   useEffect(() => {
-    if (openEvening) startEveningChat()
+    if (openConversationId) {
+      fetchConversationMessages(openConversationId)
+        .then((msgs) => setActiveChat({ kind: 'saved', id: openConversationId, title: 'Question du jour', messages: msgs }))
+        .catch((err) => setError((err as Error).message))
+    } else if (openEvening) startEveningChat()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

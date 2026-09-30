@@ -9,11 +9,19 @@ conversationsRouter.get("/", (_req, res) => {
   res.json(db.prepare("SELECT id, title, kind, created_at, updated_at FROM conversations ORDER BY updated_at DESC").all());
 });
 
+// assistantMessage: opens the conversation with a message from the AI
+// (the question of the day, answered from the Today page).
 conversationsRouter.post("/", (req, res) => {
-  const { title } = req.body as { title?: string };
+  const { title, assistantMessage } = req.body as { title?: string; assistantMessage?: string };
   const result = db
     .prepare("INSERT INTO conversations (title) VALUES (?)")
     .run(title?.trim() || "Nouvelle conversation");
+  if (assistantMessage?.trim()) {
+    db.prepare("INSERT INTO conversation_messages (conversation_id, role, content) VALUES (?, 'assistant', ?)").run(
+      result.lastInsertRowid,
+      assistantMessage.trim()
+    );
+  }
   res.json({ id: result.lastInsertRowid });
 });
 

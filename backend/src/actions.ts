@@ -267,7 +267,7 @@ export async function prepareCandidature(itemId: number, urgent: boolean): Promi
     await sendPush({
       title: "⚡ Candidature prête",
       body: `${item.title}${item.company ? ` chez ${item.company}` : ""} : relis-la et dis oui pour l'avoir en brouillon.`,
-      url: "/?tab=todo",
+      url: "/?tab=today",
       tag: `action-${id}`,
     });
   }
