@@ -2277,3 +2277,62 @@ a.watch-item-title:hover {
   margin: 4px 0 0;
   padding-left: 18px;
 }
+
+/* ---------- Coach ---------- */
+
+.coach-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.coach-line--good {
+  border-color: rgba(51, 230, 200, 0.35);
+}
+
+.coach-line--bad {
+  border-color: rgba(255, 92, 114, 0.4);
+}
+
+.coach-line-emoji {
+  font-size: 1.6rem;
+}
+
+.coach-line-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.coach-line-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.coach-line-comment {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.commitments {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--glass-border);
+  font-size: 0.88rem;
+  color: var(--text-primary);
+}
+
+.commitments ul {
+  margin: 6px 0 4px;
+  padding-left: 18px;
+}
+
+.commitments-note {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}

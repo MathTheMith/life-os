@@ -3,6 +3,7 @@ import { callAiService, parseJsonReply } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
 import { getEvent, listAgenda, parisNowLocal, type AgendaEvent } from "./routes/agenda.js";
 import { sendPush } from "./push.js";
+import { getCoach, moodLabel } from "./coach.js";
 
 // Sends agenda reminders as push notifications. Checked every minute; each
 // due reminder gets a short message written by the model for this event and
@@ -43,6 +44,7 @@ export async function writeMessage(event: AgendaEvent, offsetMin: number): Promi
     `Événement : ${event.title}\nQuand : ${event.all_day ? `${day}, journée entière` : event.start_at.replace("T", " ")} (${when})\n` +
     (event.notes ? `Notes : ${event.notes}\n` : "") +
     (sameDay ? `Autres choses ce jour-là :\n${sameDay}\n` : "") +
+    `Ton humeur envers lui en ce moment : ${moodLabel(getCoach().satisfaction).label}. Laisse-la transparaître légèrement, sans jamais être blessant.\n` +
     `\n## Profil\n${getProfileForPrompt() || "(vide)"}`;
 
   try {

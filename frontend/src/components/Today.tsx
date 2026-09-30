@@ -14,6 +14,8 @@ import {
   createTodo,
   updateTodo,
   fetchAgenda,
+  fetchCoach,
+  type CoachMood,
   type Brief,
   type Goal,
   type Todo,
@@ -45,6 +47,7 @@ export function TodayPage({
   return (
     <div className="planning-page">
       <NotificationsCard hideWhenEnabled />
+      <CoachLine />
       <BriefCard brief={brief} onChange={setBrief} />
       {brief?.question && <QuestionCard question={brief.question} onAnswer={onAnswer} />}
       <BudgetLine onOpen={onOpenBudget} />
@@ -85,6 +88,17 @@ function BriefCard({ brief, onChange }: { brief: Brief | null | undefined; onCha
           <button className="text-button brief-regenerate" onClick={() => setExpanded((v) => !v)}>
             {expanded ? 'Réduire' : 'Lire la suite'}
           </button>
+          {brief.commitments && brief.commitments.length > 0 && (
+            <div className="commitments">
+              <span className="question-card-label">🎯 Tes engagements du jour</span>
+              <ul>
+                {brief.commitments.map((c, i) => (
+                  <li key={i}>{c}</li>
+                ))}
+              </ul>
+              <span className="commitments-note">Je vérifie ce soir.</span>
+            </div>
+          )}
         </>
       ) : (
         <>
@@ -95,6 +109,32 @@ function BriefCard({ brief, onChange }: { brief: Brief | null | undefined; onCha
         </>
       )}
       {error && <div className="error">{error}</div>}
+    </div>
+  )
+}
+
+// How happy the coach is with you, moved by the evening reviews.
+function CoachLine() {
+  const [coach, setCoach] = useState<CoachMood | null>(null)
+
+  useEffect(() => {
+    fetchCoach()
+      .then(setCoach)
+      .catch(() => setCoach(null))
+  }, [])
+
+  if (!coach) return null
+  const tone = coach.satisfaction >= 1 ? 'coach-line--good' : coach.satisfaction <= -1 ? 'coach-line--bad' : ''
+  return (
+    <div className={`coach-line ${tone}`}>
+      <span className="coach-line-emoji">{coach.emoji}</span>
+      <div className="coach-line-main">
+        <span className="coach-line-label">
+          Ton coach est {coach.label} ({coach.satisfaction > 0 ? '+' : ''}
+          {coach.satisfaction}/5)
+        </span>
+        {coach.comment && <span className="coach-line-comment">{coach.comment}</span>}
+      </div>
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { db } from "../db.js";
 import { callAiService, parseJsonReply } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
 import { addEvent, parisToUtc } from "./agenda.js";
+import { adjustCoach, dayEvidence, getCoach, moodLabel, toneInstructions } from "../coach.js";
 
 // Evening journal, fed by the "chat du soir": a daily conversation where the
 // AI asks about the day. When the user finishes it, the transcript becomes
@@ -34,6 +35,11 @@ const journalColumns = (db.prepare("PRAGMA table_info(journal_entries)").all() a
 if (!journalColumns.includes("ai_questions")) {
   db.exec("ALTER TABLE journal_entries ADD COLUMN ai_questions TEXT");
 }
+// ai_review: the evening check of the day's commitments (JSON array);
+// coach_delta: how much this evening moved the coach's mood, so a second
+// "Terminer" the same evening replaces it instead of adding up.
+if (!journalColumns.includes("ai_review")) db.exec("ALTER TABLE journal_entries ADD COLUMN ai_review TEXT");
+if (!journalColumns.includes("coach_delta")) db.exec("ALTER TABLE journal_entries ADD COLUMN coach_delta INTEGER");
 
 if (!conversationColumns.includes("kind")) {
   db.exec("ALTER TABLE conversations ADD COLUMN kind TEXT NOT NULL DEFAULT 'normal'");
@@ -56,7 +62,15 @@ interface JournalRow {
   ai_feedback: string | null;
   ai_facts: string | null;
   ai_questions: string | null;
+  ai_review: string | null;
+  coach_delta: number | null;
   created_at: string;
+}
+
+interface ReviewItem {
+  engagement: string;
+  fait: "oui" | "non" | "partiel";
+  raison: string | null;
 }
 
 function toApi(row: JournalRow) {
@@ -64,6 +78,7 @@ function toApi(row: JournalRow) {
     ...row,
     ai_facts: row.ai_facts ? (JSON.parse(row.ai_facts) as string[]) : [],
     ai_questions: row.ai_questions ? (JSON.parse(row.ai_questions) as string[]) : [],
+    ai_review: row.ai_review ? (JSON.parse(row.ai_review) as ReviewItem[]) : [],
   };
 }
 
@@ -109,7 +124,15 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
 
   const prompt =
     "Tu lis le chat du soir de Mathéo (sa discussion avec son assistant sur sa journée). Réponds uniquement avec un objet JSON :\n" +
-    '{"resume": "une phrase factuelle", "humeur": 1-5 ou null, "energie": 1-5 ou null, "retour": "2 ou 3 phrases pour lui", "faits": ["..."], "questions": ["..."], "evenements": [{"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ"}]}\n\n' +
+    '{"resume": "une phrase factuelle", "humeur": 1-5 ou null, "energie": 1-5 ou null, "retour": "2 ou 3 phrases pour lui", "faits": ["..."], "questions": ["..."], "evenements": [{"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ"}], ' +
+    '"bilan": [{"engagement": "...", "fait": "oui | non | partiel", "raison": "sa raison s\'il n\'a pas fait, sinon null"}], ' +
+    '"satisfaction_delta": -3 à 3, "raison_humeur": "une phrase : pourquoi ton humeur envers lui change (ou pas)"}\n\n' +
+    "- bilan : pour chaque engagement du matin et chaque chose importante prévue (voir « Ce qui était prévu et ce qui a été fait »), " +
+    "fait ou pas d'après la conversation et les données de l'app, avec sa raison.\n" +
+    "- satisfaction_delta : comment ta satisfaction envers lui évolue ce soir. Engagements tenus : +1 à +3 selon l'effort. " +
+    "Pas faits par flemme, manque d'envie ou excuse creuse : -1 à -3 (plus fort si ça se répète dans les jours précédents). " +
+    "Pas faits pour une vraie raison (maladie, vraie fatigue, imprévu, coup dur) : 0. Rien de prévu : 0 ou +1 s'il a fait quelque chose d'utile.\n" +
+    "- retour : suit ton humeur (voir ci-dessous), APRÈS application de satisfaction_delta.\n" +
     "- humeur, energie : la note qu'il a donnée, sinon ton estimation d'après ce qu'il dit, null si impossible à dire.\n" +
     "- resume : ce qui s'est passé, en une phrase, à la troisième personne.\n" +
     "- retour : direct, concret, sans flatterie ni morale. Relie la journée à ses rêves et objectifs du profil quand c'est pertinent, " +
@@ -120,6 +143,8 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
     "un manque dans son profil (lignes « À compléter », sujet absent), une situation restée floue, le suivi d'un événement annoncé. " +
     "Pas de question déjà répondue dans le profil ou le journal.\n" +
     `- evenements : les rendez-vous, courses, échéances ou choses à faire à une date précise qu'il mentionne, à venir (heure de Paris, nous sommes le ${entry.date}). Liste vide sinon.\n\n` +
+    `${toneInstructions()}\n\n` +
+    `## Ce qui était prévu et ce qui a été fait le ${entry.date}\n${dayEvidence(entry.date)}\n\n` +
     `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n` +
     `## Jours précédents\n${previous.map((p) => `- ${p.date} : ${p.ai_summary}`).join("\n") || "(aucun)"}\n\n` +
     `## Entrée du ${entry.date}` +
@@ -144,6 +169,17 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
         console.error("Journal → agenda :", (err as Error).message);
       }
     }
+    const review: ReviewItem[] = (Array.isArray(parsed.bilan) ? parsed.bilan : [])
+      .filter((r: any) => r && typeof r.engagement === "string")
+      .map((r: any) => ({
+        engagement: r.engagement,
+        fait: ["oui", "non", "partiel"].includes(r.fait) ? r.fait : "non",
+        raison: typeof r.raison === "string" ? r.raison : null,
+      }));
+    const delta = Math.max(-3, Math.min(3, Math.round(Number(parsed.satisfaction_delta) || 0)));
+    // A re-analysis of the same evening replaces its earlier effect.
+    adjustCoach(entry.date, delta - (entry.coach_delta ?? 0), typeof parsed.raison_humeur === "string" ? parsed.raison_humeur : null);
+    db.prepare("UPDATE journal_entries SET ai_review = ?, coach_delta = ? WHERE id = ?").run(JSON.stringify(review), delta, id);
     db.prepare(
       `UPDATE journal_entries SET ai_status = 'done', ai_summary = ?, ai_feedback = ?, ai_facts = ?, ai_questions = ?,
        mood = COALESCE(?, mood), energy = COALESCE(?, energy) WHERE id = ?`
@@ -187,8 +223,13 @@ export function getEveningInstructions(): string {
           .map((q) => `« ${q} »`)
           .join(", ")}. `
       : "") +
-    "Si une de ses réponses apporte une information durable absente de son profil, ajoute-la directement au profil (update_profile_section, en gardant le reste de la section) et dis-le-lui en une ligne. " +
-    "Quand vous avez fait le tour, dis-lui qu'il peut toucher « Terminer » pour enregistrer son journal."
+    "BILAN : tu sais ce qui était prévu aujourd'hui et ce que l'app a vu se faire (ci-dessous). Au fil de la conversation, " +
+    "passe en revue ses engagements du jour et les choses importantes prévues. Pour chaque chose pas faite, demande-lui POURQUOI, " +
+    "et creuse si la réponse est vague. Réagis selon ton humeur et selon la raison : dur avec la flemme, compréhensif avec une vraie raison. " +
+    "Pour ce qui est fait, reconnais-le précisément. " +
+        "Si une de ses réponses apporte une information durable absente de son profil, ajoute-la directement au profil (update_profile_section, en gardant le reste de la section) et dis-le-lui en une ligne. " +
+    "Quand vous avez fait le tour, dis-lui qu'il peut toucher « Terminer » pour enregistrer son journal.\n\n" +
+    `### Ce qui était prévu et ce qui a été fait aujourd'hui\n${dayEvidence(todayInParis())}`
   );
 }
 
@@ -205,7 +246,14 @@ function formatFinishMessage(entry: NonNullable<Awaited<ReturnType<typeof analyz
   }
   const scores = [entry.mood && `humeur ${entry.mood}/5`, entry.energy && `énergie ${entry.energy}/5`].filter(Boolean).join(", ");
   const facts = entry.ai_facts.length ? `\n\n**Je retiens :**\n${entry.ai_facts.map((f) => `- ${f}`).join("\n")}` : "";
-  return `📓 **Journal enregistré**${scores ? ` (${scores})` : ""}\n\n${entry.ai_summary}\n\n**Mon retour :** ${entry.ai_feedback}${facts}`;
+  const icon = { oui: "✅", non: "❌", partiel: "🟡" };
+  const review = entry.ai_review.length
+    ? `\n\n**Bilan du jour :**\n${entry.ai_review.map((r) => `${icon[r.fait]} ${r.engagement}${r.fait !== "oui" && r.raison ? ` (${r.raison})` : ""}`).join("\n")}`
+    : "";
+  const coach = getCoach();
+  const mood = moodLabel(coach.satisfaction);
+  const moodLine = `\n\n${mood.emoji} **Mon humeur envers toi : ${mood.label}** (${coach.satisfaction > 0 ? "+" : ""}${coach.satisfaction}/5)${coach.comment ? `. ${coach.comment}` : ""}`;
+  return `📓 **Journal enregistré**${scores ? ` (${scores})` : ""}\n\n${entry.ai_summary}${review}\n\n**Mon retour :** ${entry.ai_feedback}${facts}${moodLine}`;
 }
 
 export const journalRouter = Router();

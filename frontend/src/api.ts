@@ -629,6 +629,7 @@ export interface Brief {
   date: string
   content: string
   question?: string | null
+  commitments?: string[]
   created_at?: string
 }
 
@@ -681,3 +682,12 @@ export interface JournalEntry {
 }
 
 export const fetchJournal = async (days = 90) => json<JournalEntry[]>(await fetch(`/api/journal?days=${days}`), 'Erreur chargement journal')
+
+export interface CoachMood {
+  satisfaction: number
+  comment: string | null
+  emoji: string
+  label: string
+}
+
+export const fetchCoach = async () => json<CoachMood>(await fetch('/api/coach'), 'Erreur')

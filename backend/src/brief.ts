@@ -8,6 +8,7 @@ import { getWatchForPrompt } from "./watch.js";
 import { sendPush } from "./push.js";
 import { getState, setState, parisNow } from "./state.js";
 import { generateMorningActions, getActionsForPrompt } from "./actions.js";
+import { toneInstructions, adjustCoach } from "./coach.js";
 
 // The daily rhythm: the morning brief at 9:00, and the evening chat
 // reminder at 21:30 when the day's journal isn't written yet. Both are
@@ -22,9 +23,10 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 `);
-if (!(db.prepare("PRAGMA table_info(briefs)").all() as { name: string }[]).some((c) => c.name === "question")) {
-  db.exec("ALTER TABLE briefs ADD COLUMN question TEXT");
-}
+const briefColumns = (db.prepare("PRAGMA table_info(briefs)").all() as { name: string }[]).map((c) => c.name);
+if (!briefColumns.includes("question")) db.exec("ALTER TABLE briefs ADD COLUMN question TEXT");
+// The day's commitments (JSON array), checked in the evening chat.
+if (!briefColumns.includes("commitments")) db.exec("ALTER TABLE briefs ADD COLUMN commitments TEXT");
 
 const BRIEF_HOUR = 9;
 // A brief missed by more than this (server down all morning) is skipped.
@@ -70,7 +72,7 @@ function pendingQuestions(): string {
 
 export async function generateBrief(
   date: string
-): Promise<{ notification: { title: string; body: string }; content: string; question: string | null }> {
+): Promise<{ notification: { title: string; body: string }; content: string; question: string | null; commitments: string[] }> {
   const section = (title: string, body: string) => `## ${title}\n${body || "(rien)"}`;
   const context = [
     section("Profil", getProfileForPrompt()),
@@ -92,7 +94,10 @@ export async function generateBrief(
       timeZone: "UTC",
     }).format(new Date(`${date}T12:00:00Z`))}. ` +
     "Réponds uniquement avec un objet JSON :\n" +
-    '{"notif_titre": "max 45 caractères", "notif_texte": "max 160 caractères, l\'essentiel de la journée", "brief": "markdown", "question": "..."}\n\n' +
+    '{"notif_titre": "max 45 caractères", "notif_texte": "max 160 caractères, l\'essentiel de la journée", "brief": "markdown", "question": "...", "engagements": ["..."]}\n\n' +
+    "engagements : 1 à 3 choses concrètes et vérifiables que tu lui demandes de faire AUJOURD'HUI (le conseil du jour, une action préparée à valider, " +
+    "une tâche ou habitude importante). Formulées comme des engagements courts (« Envoyer la candidature Hyundai », « 30 min de simu racecraft »). " +
+    "Tu vérifieras ce soir s'il les a tenus.\n" +
     "question : UNE question courte que tu aimerais lui poser aujourd'hui pour mieux le connaître et mieux le conseiller : sa vie, ses ambitions, " +
     "son matériel, ses finances, ses habitudes, ses goûts... Vise un vrai manque (ligne « À compléter » du profil, sujet jamais abordé), " +
     "pas une question déjà répondue. Tutoiement. Elle est affichée à part, ne la mets pas dans le brief.\n\n" +
@@ -103,7 +108,10 @@ export async function generateBrief(
     "- ✅ **Prêt pour toi** : les actions préparées qui attendent son oui (candidatures, relances, sorties, fiches), en une ligne chacune.\n" +
     "- 🗓️ **Cette semaine** : ce qui arrive et qu'il faut anticiper dès maintenant.\n" +
     "- 💡 **Le conseil du jour** : UNE action concrète qui le rapproche de ses rêves ou objectifs, tirée de son profil et de son journal.\n" +
-    "Pas d'introduction ni de conclusion, pas de flatterie. N'invente rien qui ne soit pas dans le contexte.\n\n" +
+    "Pas d'introduction ni de conclusion, pas de flatterie. N'invente rien qui ne soit pas dans le contexte. " +
+    "Le ton du brief et de la notification suit ton humeur ci-dessous.\n\n" +
+    toneInstructions() +
+    "\n\n" +
     context;
 
   const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
@@ -116,16 +124,19 @@ export async function generateBrief(
     },
     content: String(parsed.brief ?? ""),
     question: typeof parsed.question === "string" && parsed.question.trim() ? parsed.question.trim() : null,
+    commitments: Array.isArray(parsed.engagements)
+      ? parsed.engagements.filter((c: unknown): c is string => typeof c === "string" && c.trim() !== "").slice(0, 3)
+      : [],
   };
 }
 
 export async function runBrief(date = parisNow().date, notify = true) {
   const brief = await generateBrief(date);
   db.prepare(
-    `INSERT INTO briefs (date, notification, content, question) VALUES (?, ?, ?, ?)
+    `INSERT INTO briefs (date, notification, content, question, commitments) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(date) DO UPDATE SET notification = excluded.notification, content = excluded.content,
-     question = excluded.question, created_at = datetime('now')`
-  ).run(date, JSON.stringify(brief.notification), brief.content, brief.question);
+     question = excluded.question, commitments = excluded.commitments, created_at = datetime('now')`
+  ).run(date, JSON.stringify(brief.notification), brief.content, brief.question, JSON.stringify(brief.commitments));
   if (notify) await sendPush({ ...brief.notification, url: "/?tab=today", tag: "brief" });
   return brief;
 }
@@ -143,9 +154,10 @@ async function sendEveningReminder(date: string) {
         {
           role: "user",
           content:
-            "Écris le texte d'une notification (max 110 caractères) qui invite Mathéo à faire son chat du soir (le point sur sa journée). " +
+            "Écris le texte d'une notification (max 110 caractères) qui invite Mathéo à faire son chat du soir (le point sur sa journée, " +
+            "où tu vérifies s'il a tenu ses engagements). Le ton suit ton humeur ci-dessous. " +
             "Rends-la personnelle en t'appuyant sur ce qu'il avait de prévu aujourd'hui, sans rien inventer. Tutoiement, pas de tirets cadratins, " +
-            `réponds uniquement avec le texte.\n\nPrévu aujourd'hui :\n${today || "(rien de particulier)"}`,
+            `réponds uniquement avec le texte.\n\nPrévu aujourd'hui :\n${today || "(rien de particulier)"}\n\n${toneInstructions()}`,
         },
       ],
       reasoning_effort: "low",
@@ -167,6 +179,10 @@ async function tick() {
     const now = parisNow();
     if (now.hour >= BRIEF_HOUR && now.hour < BRIEF_LAST_HOUR && getState("brief_last_date") !== now.date) {
       setState("brief_last_date", now.date);
+      const yesterday = addDays(now.date, -1);
+      if (db.prepare("SELECT 1 FROM briefs WHERE date = ?").get(yesterday) && !eveningJournalDone(yesterday)) {
+        adjustCoach(yesterday, -1, "Pas de chat du soir hier, pas de bilan");
+      }
       // The day's actions first, so the brief can mention them.
       await generateMorningActions().catch((err) => console.error("Actions :", err));
       await runBrief(now.date).catch((err) => console.error("Brief :", err));
@@ -196,15 +212,17 @@ export function getTodayBriefForPrompt(): string {
 export const briefRouter = Router();
 
 briefRouter.get("/today", (_req, res) => {
-  const row = db.prepare("SELECT date, content, question, created_at FROM briefs WHERE date = ?").get(parisNow().date);
-  res.json(row ?? null);
+  const row = db.prepare("SELECT date, content, question, commitments, created_at FROM briefs WHERE date = ?").get(parisNow().date) as
+    | { commitments: string | null }
+    | undefined;
+  res.json(row ? { ...row, commitments: row.commitments ? JSON.parse(row.commitments) : [] } : null);
 });
 
 // Regenerates today's brief on demand (no notification).
 briefRouter.post("/today", async (_req, res) => {
   try {
     const brief = await runBrief(parisNow().date, false);
-    res.json({ date: parisNow().date, content: brief.content, question: brief.question });
+    res.json({ date: parisNow().date, content: brief.content, question: brief.question, commitments: brief.commitments });
   } catch (err) {
     console.error("Brief :", err);
     res.status(502).json({ error: "Impossible de générer le brief, réessaie." });

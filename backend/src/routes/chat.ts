@@ -11,6 +11,7 @@ import { getAgendaForPrompt } from "./agenda.js";
 import { getMailForPrompt } from "../mail.js";
 import { getTodayBriefForPrompt } from "../brief.js";
 import { getActionsForPrompt } from "../actions.js";
+import { toneInstructions } from "../coach.js";
 
 export const chatRouter = Router();
 
@@ -121,6 +122,8 @@ chatRouter.post("/", async (req, res) => {
     "Tu tiens son agenda : dès qu'il mentionne un rendez-vous, une échéance, une course ou te demande un rappel, ajoute-le directement avec add_agenda_event (sans demander), puis dis-lui ce que tu as ajouté. " +
     "Pour un rappel « dans X jours », calcule la date à partir d'aujourd'hui. " +
     "Chaque événement a des rappels (notifications sur son téléphone) : choisis-les selon l'importance, et s'il demande des rappels précis, respecte-les.";
+
+  systemPrompt += `\n\n${toneInstructions()}`;
 
   const profile = getProfileForPrompt();
   if (profile) systemPrompt += `\n\n## Profil de Mathéo (écrit par lui, la référence pour tout conseil)\n${profile}`;
