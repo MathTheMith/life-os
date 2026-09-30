@@ -25,9 +25,14 @@ const TABS: { id: Tab; label: string; icon: ComponentType<{ size?: number }> }[]
 
 const TAB_STORAGE_KEY = 'life-os-active-tab'
 
+// Notifications open the app with ?tab=..., ?evening=1 (evening chat) or
+// ?view=mails. Read once at startup, then cleared so a reload doesn't
+// replay it.
+const LAUNCH_PARAMS = new URLSearchParams(window.location.search)
+if (window.location.search) window.history.replaceState(null, '', window.location.pathname)
+
 function loadInitialTab(): Tab {
-  // Notifications open the app on a given tab with ?tab=...
-  const fromUrl = new URLSearchParams(window.location.search).get('tab')
+  const fromUrl = LAUNCH_PARAMS.has('evening') ? 'chat' : LAUNCH_PARAMS.get('tab')
   if (TABS.some((t) => t.id === fromUrl)) return fromUrl as Tab
   const stored = localStorage.getItem(TAB_STORAGE_KEY)
   return TABS.some((t) => t.id === stored) ? (stored as Tab) : 'budget'
@@ -55,7 +60,7 @@ function MainApp() {
   const [tab, setTab] = useState<Tab>(loadInitialTab)
   const [budgetKey, setBudgetKey] = useState(0)
   // Full-screen pages opened from the header, outside the dock tabs.
-  const [overlay, setOverlay] = useState<'import' | 'watch' | null>(null)
+  const [overlay, setOverlay] = useState<'import' | 'watch' | null>(LAUNCH_PARAMS.get('view') === 'mails' ? 'watch' : null)
 
   function selectTab(next: Tab) {
     setTab(next)
@@ -80,7 +85,7 @@ function MainApp() {
           <main className="app-content">
             <div className="app-scroll">
               {overlay === 'import' && <Import onImported={() => setBudgetKey((k) => k + 1)} />}
-              {overlay === 'watch' && <RadarPage />}
+              {overlay === 'watch' && <RadarPage initialView={LAUNCH_PARAMS.get('view') === 'mails' ? 'mails' : 'web'} />}
             </div>
           </main>
         </div>
@@ -110,7 +115,7 @@ function MainApp() {
           {/* Keying by tab gives each one its own fresh scroll container —
               no leftover scroll position from whatever was open before. */}
           <div className="app-scroll" key={tab}>
-            {tab === 'chat' && <Chat />}
+            {tab === 'chat' && <Chat openEvening={LAUNCH_PARAMS.has('evening')} />}
             {tab === 'budget' && <Budget key={budgetKey} />}
             {tab === 'motorsport' && <Motorsport />}
             {tab === 'todo' && <PlanningPage />}
@@ -136,8 +141,8 @@ function MainApp() {
 }
 
 // The header's radar page: what the watch found on the web, and the mails.
-function RadarPage() {
-  const [view, setView] = useState<'web' | 'mails'>('web')
+function RadarPage({ initialView }: { initialView: 'web' | 'mails' }) {
+  const [view, setView] = useState<'web' | 'mails'>(initialView)
   return (
     <div className="radar-page">
       <div className="segmented radar-switch">

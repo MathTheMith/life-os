@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
-import { fetchAgenda, addAgendaEvent, deleteAgendaEvent, fetchPushKey, savePushSubscription, sendTestPush, type AgendaEvent } from '../api'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { fetchAgenda, addAgendaEvent, deleteAgendaEvent, fetchPushKey, savePushSubscription, sendTestPush, fetchTodayBrief, regenerateBrief, type AgendaEvent, type Brief } from '../api'
 import { PlusIcon, TrashIcon } from '../icons'
 import { TodoPage } from './Todo'
 
@@ -48,8 +50,63 @@ export function PlanningPage() {
   return (
     <div className="planning-page">
       <NotificationsCard />
+      <BriefCard />
       <AgendaCard />
       <TodoPage />
+    </div>
+  )
+}
+
+// Today's morning brief (sent at 9:00), or a button to write it now.
+function BriefCard() {
+  const [brief, setBrief] = useState<Brief | null | undefined>(undefined)
+  const [open, setOpen] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetchTodayBrief()
+      .then(setBrief)
+      .catch(() => setBrief(null))
+  }, [])
+
+  async function generate() {
+    setBusy(true)
+    setError(null)
+    try {
+      setBrief(await regenerateBrief())
+      setOpen(true)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (brief === undefined) return null
+
+  return (
+    <div className="glass-card brief-card">
+      <div className="agenda-header">
+        <h2 className="section-title">☀️ Brief du jour</h2>
+        {brief && (
+          <button className="text-button" onClick={() => setOpen((v) => !v)}>
+            {open ? 'Réduire' : 'Afficher'}
+          </button>
+        )}
+      </div>
+      {brief && open && (
+        <div className="brief-content">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{brief.content}</ReactMarkdown>
+        </div>
+      )}
+      {!brief && <p className="watch-meta">Ton brief arrive chaque matin à 9h. Tu peux aussi le générer maintenant.</p>}
+      {error && <div className="error">{error}</div>}
+      {(!brief || open) && (
+        <button className="text-button brief-regenerate" onClick={generate} disabled={busy}>
+          {busy ? 'Rédaction en cours…' : brief ? 'Mettre à jour' : 'Générer mon brief maintenant'}
+        </button>
+      )}
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { callAiService } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
 import { addEvent, parisNowLocal, parisToUtc } from "./routes/agenda.js";
 import { getState, setState } from "./state.js";
+import { sendPush } from "./push.js";
 
 // Read-only mail watch over IMAP (Gmail app passwords, set in .env as
 // MAIL_ACCOUNTS=address:apppassword,address2:apppassword2). Every 30 minutes
@@ -34,6 +35,13 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mail_date ON mail_messages(date);
 `);
+
+// notified: an urgent mail already pushed. Mails that existed before this
+// column are marked as notified so enabling it doesn't flood the phone.
+if (!(db.prepare("PRAGMA table_info(mail_messages)").all() as { name: string }[]).some((c) => c.name === "notified")) {
+  db.exec("ALTER TABLE mail_messages ADD COLUMN notified INTEGER NOT NULL DEFAULT 0");
+  db.exec("UPDATE mail_messages SET notified = 1");
+}
 
 const FIRST_RUN_DAYS = 7;
 const MAX_PER_RUN = 60;
@@ -215,6 +223,31 @@ async function triagePending() {
   }
 }
 
+// Pushes right away the mails that can't wait for the morning brief: an
+// answer to an application, an interview, a recruiter, or anything the
+// triage scored very high. Only recent mails, each at most once.
+async function notifyUrgent() {
+  const urgent = db
+    .prepare(
+      `SELECT id, from_name, from_addr, subject, summary, action FROM mail_messages
+       WHERE ai_status = 'done' AND notified = 0 AND date >= datetime('now', '-1 day')
+       AND (importance >= 90 OR (importance >= 75 AND category IN ('candidature', 'recrutement')))`
+    )
+    .all() as { id: number; from_name: string | null; from_addr: string | null; subject: string; summary: string | null; action: string | null }[];
+  for (const mail of urgent) {
+    db.prepare("UPDATE mail_messages SET notified = 1 WHERE id = ?").run(mail.id);
+    await sendPush({
+      title: `📬 ${mail.from_name || mail.from_addr}`.slice(0, 60),
+      body: `${mail.summary ?? mail.subject}${mail.action ? ` 👉 ${mail.action}` : ""}`.slice(0, 200),
+      url: "/?view=mails",
+      tag: `mail-${mail.id}`,
+    });
+  }
+  // Everything else triaged is considered handled, so a later rescore
+  // can't push an old mail.
+  db.prepare("UPDATE mail_messages SET notified = 1 WHERE ai_status = 'done' AND notified = 0").run();
+}
+
 let running = false;
 
 export function isMailRunning() {
@@ -237,6 +270,7 @@ export async function runMail(): Promise<{ fetched: number }> {
       }
     }
     await triagePending();
+    await notifyUrgent();
     setState("mail_last_run", new Date().toISOString());
   } finally {
     running = false;

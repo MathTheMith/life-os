@@ -619,3 +619,14 @@ export const savePushSubscription = async (subscription: PushSubscriptionJSON) =
 
 export const sendTestPush = async () =>
   json<{ delivered: number }>(await fetch('/api/push/test', { method: 'POST' }), "Erreur d'envoi")
+
+export interface Brief {
+  date: string
+  content: string
+  created_at?: string
+}
+
+export const fetchTodayBrief = async () => json<Brief | null>(await fetch('/api/brief/today'), 'Erreur chargement brief')
+
+export const regenerateBrief = async () =>
+  json<Brief>(await fetch('/api/brief/today', { method: 'POST' }), 'Erreur de génération du brief')

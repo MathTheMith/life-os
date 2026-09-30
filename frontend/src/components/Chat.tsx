@@ -57,7 +57,7 @@ function formatDate(iso: string): string {
   return RELATIVE_FORMAT.format(new Date(iso.replace(' ', 'T') + 'Z'))
 }
 
-export function Chat() {
+export function Chat({ openEvening = false }: { openEvening?: boolean }) {
   const [activeChat, setActiveChat] = useState<ActiveChat>({ kind: 'temporary', messages: [] })
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -123,6 +123,12 @@ export function Chat() {
       setError((err as Error).message)
     }
   }
+
+  // Opened from the evening reminder notification.
+  useEffect(() => {
+    if (openEvening) startEveningChat()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function startEveningChat() {
     setError(null)

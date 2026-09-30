@@ -24,10 +24,11 @@ export function parisNow() {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
+      minute: "2-digit",
       hour12: false,
     })
       .formatToParts(new Date())
       .map((p) => [p.type, p.value])
   );
-  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) % 24 };
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) % 24, minute: Number(parts.minute) };
 }

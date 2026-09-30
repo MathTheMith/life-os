@@ -1943,3 +1943,31 @@ a.watch-item-title:hover {
   font-size: 0.78rem;
   color: var(--text-muted);
 }
+
+/* ---------- Brief ---------- */
+
+.brief-content {
+  font-size: 0.88rem;
+  line-height: 1.55;
+  color: var(--text-primary);
+}
+
+.brief-content h2,
+.brief-content h3 {
+  font-size: 0.92rem;
+  margin: 12px 0 4px;
+}
+
+.brief-content p {
+  margin: 6px 0;
+}
+
+.brief-content ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.brief-regenerate {
+  display: block;
+  margin: 10px auto 0;
+}
