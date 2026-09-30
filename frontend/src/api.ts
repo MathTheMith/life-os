@@ -437,3 +437,26 @@ export async function importCsv(file: File): Promise<{ imported: number }> {
   }
   return res.json()
 }
+
+// Fired by the fetch wrapper in main.tsx whenever an /api call comes back
+// 401, so App can drop back to the login screen from anywhere.
+export const UNAUTHORIZED_EVENT = 'lifeos:unauthorized'
+
+export async function fetchAuthStatus(): Promise<boolean> {
+  const res = await fetch('/api/auth/me')
+  if (!res.ok) return false
+  const data = await res.json()
+  return data.authenticated === true
+}
+
+export async function login(password: string): Promise<void> {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password }),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || 'Erreur de connexion')
+  }
+}

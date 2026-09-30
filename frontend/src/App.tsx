@@ -1,10 +1,12 @@
-import { useState, type ComponentType } from 'react'
+import { useEffect, useState, type ComponentType } from 'react'
 import { Chat } from './components/Chat'
 import { Budget } from './components/Budget'
 import { Import } from './components/Import'
 import { Motorsport } from './components/Motorsport'
 import { TodoPage } from './components/Todo'
 import { BankExpiryBanner } from './components/BankExpiryBanner'
+import { Login } from './components/Login'
+import { fetchAuthStatus, UNAUTHORIZED_EVENT } from './api'
 import { GaugeIcon, ChecklistIcon, ChatIcon, FlagIcon, UploadIcon, ArrowLeftIcon } from './icons'
 import './App.css'
 
@@ -25,6 +27,24 @@ function loadInitialTab(): Tab {
 }
 
 function App() {
+  // null while the first /api/auth/me check is in flight.
+  const [authenticated, setAuthenticated] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    fetchAuthStatus()
+      .then(setAuthenticated)
+      .catch(() => setAuthenticated(false))
+    const onUnauthorized = () => setAuthenticated(false)
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized)
+  }, [])
+
+  if (authenticated === null) return null
+  if (!authenticated) return <Login onLoggedIn={() => setAuthenticated(true)} />
+  return <MainApp />
+}
+
+function MainApp() {
   const [tab, setTab] = useState<Tab>(loadInitialTab)
   const [budgetKey, setBudgetKey] = useState(0)
   const [showImport, setShowImport] = useState(false)

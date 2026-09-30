@@ -1,6 +1,5 @@
 import "dotenv/config";
 import express from "express";
-import cors from "cors";
 import { chatRouter } from "./routes/chat.js";
 import { transactionsRouter } from "./routes/transactions.js";
 import { budgetRouter } from "./routes/budget.js";
@@ -11,22 +10,24 @@ import { bankSyncRouter } from "./routes/bankSync.js";
 import { todosRouter } from "./routes/todos.js";
 import { conversationsRouter } from "./routes/conversations.js";
 import { uploadsDir } from "./db.js";
+import { authRouter, requireAuth } from "./auth.js";
 
 const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
 
-app.use(cors());
 // Default 100kb is fine for everything except chat images, sent inline as a
 // base64 data: URI in the JSON body (the frontend already downsizes them
 // before sending, this is just headroom, not the primary size control).
 app.use(express.json({ limit: "10mb" }));
 
-// Images attached to chat messages, served back for display in the app —
-// same no-auth posture as the rest of the API (see README), filenames are
-// random UUIDs so at least they aren't guessable.
-app.use("/api/uploads", express.static(uploadsDir));
-
 app.get("/api/health", (_req, res) => res.json({ ok: true }));
+app.use("/api/auth", authRouter);
+
+// Everything registered after this line needs a login (see auth.ts).
+app.use("/api", requireAuth);
+
+// Images attached to chat messages, served back for display in the app.
+app.use("/api/uploads", express.static(uploadsDir));
 app.use("/api/chat", chatRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/budget", budgetRouter);
