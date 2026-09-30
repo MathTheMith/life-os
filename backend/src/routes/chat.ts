@@ -5,7 +5,7 @@ import { saveImageDataUrl } from "../imageStore.js";
 import { describeImage } from "../imageDescribe.js";
 import { callAiService } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
-import { getJournalForPrompt, EVENING_INSTRUCTIONS } from "./journal.js";
+import { getJournalForPrompt, getEveningInstructions } from "./journal.js";
 
 export const chatRouter = Router();
 
@@ -94,6 +94,7 @@ chatRouter.post("/", async (req, res) => {
   let systemPrompt =
     "Tu es l'assistant personnel de Mathéo dans Life OS, son application de vie (finances, objectifs, motorsport, carrière). " +
     "Ton rôle : l'aider concrètement à avancer vers les rêves et objectifs décrits dans son profil ci-dessous, qui priment sur tout le reste. Sois précis, méthodique, concis et direct. " +
+    "S'il te manque une information importante pour bien le conseiller (situation, contrainte, préférence), pose-lui la question plutôt que de supposer. " +
     "Utilise les outils de lecture pour toute question précise sur ses finances, objectifs ou courses plutôt que de deviner à partir de ce que tu crois savoir. " +
     "Si une question nécessite plusieurs outils, demande-les tous en un seul tour (plusieurs appels dans la même réponse) plutôt qu'un par un dans des tours séparés — le budget de requêtes disponible est limité. " +
     "N'appelle update_profile_section, update_global_memory ou update_chat_memory QUE si Mathéo a explicitement dit oui ou demandé de retenir/changer quelque chose. " +
@@ -106,9 +107,9 @@ chatRouter.post("/", async (req, res) => {
   const assistantNotes = getAssistantNotes();
   if (assistantNotes) systemPrompt += `\n\n## Tes notes personnelles (ta propre mémoire, tu la gères seul)\n${assistantNotes}`;
   if (conversation?.memory) systemPrompt += `\n\n## Mémoire propre à cette conversation\n${conversation.memory}`;
-  const journal = getJournalForPrompt(7);
-  if (journal) systemPrompt += `\n\n## Journal des 7 derniers jours (résumés de ses chats du soir)\n${journal}`;
-  if (conversation?.kind === "soir") systemPrompt += `\n\n${EVENING_INSTRUCTIONS}`;
+  const journal = getJournalForPrompt(14);
+  if (journal) systemPrompt += `\n\n## Journal des 14 derniers jours (résumés de ses chats du soir)\n${journal}`;
+  if (conversation?.kind === "soir") systemPrompt += `\n\n${getEveningInstructions()}`;
 
   const tools = toolDefinitions(!!conversationId);
   const workingMessages: any[] = [{ role: "system", content: systemPrompt }, ...history];

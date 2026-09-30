@@ -98,7 +98,7 @@ const READ_TOOLS = [
     function: {
       name: "get_journal",
       description:
-        "Entrées du journal de Mathéo (issues de ses chats du soir) : date, texte complet, humeur et énergie sur 5, résumé, faits retenus. Les 7 derniers jours sont déjà résumés dans le contexte : n'utilise cet outil que pour remonter plus loin ou lire le détail.",
+        "Entrées du journal de Mathéo (issues de ses chats du soir) : date, texte complet, humeur et énergie sur 5, résumé, faits retenus. Les 14 derniers jours sont déjà résumés dans le contexte : n'utilise cet outil que pour remonter plus loin ou lire le détail.",
       parameters: {
         type: "object",
         properties: {
