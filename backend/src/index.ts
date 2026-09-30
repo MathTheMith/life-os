@@ -19,6 +19,7 @@ import { startMailScheduler } from "./mail.js";
 import { pushRouter } from "./push.js";
 import { startReminderScheduler } from "./reminders.js";
 import { briefRouter, startDailyScheduler } from "./brief.js";
+import { actionsRouter } from "./routes/actions.js";
 import { uploadsDir } from "./db.js";
 import { authRouter, requireAuth } from "./auth.js";
 
@@ -54,6 +55,7 @@ app.use("/api/agenda", agendaRouter);
 app.use("/api/mail", mailRouter);
 app.use("/api/push", pushRouter);
 app.use("/api/brief", briefRouter);
+app.use("/api/actions", actionsRouter);
 
 app.listen(port, () => {
   console.log(`life-os backend listening on http://localhost:${port}`);

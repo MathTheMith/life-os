@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import { fetchAgenda, addAgendaEvent, deleteAgendaEvent, fetchPushKey, savePushSubscription, sendTestPush, fetchTodayBrief, regenerateBrief, type AgendaEvent, type Brief } from '../api'
 import { PlusIcon, TrashIcon } from '../icons'
 import { TodoPage } from './Todo'
+import { ActionsCard } from './Actions'
 
 const SOURCE_LABEL: Record<AgendaEvent['source'], string | null> = {
   user: null,
@@ -51,6 +52,7 @@ export function PlanningPage() {
     <div className="planning-page">
       <NotificationsCard />
       <BriefCard />
+      <ActionsCard />
       <AgendaCard />
       <TodoPage />
     </div>

@@ -1,5 +1,5 @@
 import { db } from "./db.js";
-import { callAiService } from "./aiClient.js";
+import { callAiService, parseJsonReply } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
 import { getEvent, listAgenda, parisNowLocal, type AgendaEvent } from "./routes/agenda.js";
 import { sendPush } from "./push.js";
@@ -48,7 +48,7 @@ export async function writeMessage(event: AgendaEvent, offsetMin: number): Promi
   try {
     const data = await callAiService({ messages: [{ role: "user", content: prompt }], reasoning_effort: "low" });
     const raw: string = data.choices?.[0]?.message?.content ?? "";
-    const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+    const parsed = parseJsonReply(raw);
     if (typeof parsed.titre === "string" && typeof parsed.texte === "string" && parsed.texte.trim()) {
       return { title: parsed.titre.slice(0, 60), body: parsed.texte.slice(0, 200) };
     }

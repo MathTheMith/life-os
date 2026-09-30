@@ -44,3 +44,33 @@ export async function callAiService(body: unknown, attempt = 0): Promise<any> {
   }
   return data;
 }
+
+const NAMED_ENTITIES: Record<string, string> = {
+  amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " ", rsquo: "’", lsquo: "‘", laquo: "«", raquo: "»", hellip: "…",
+  eacute: "é", egrave: "è", ecirc: "ê", agrave: "à", acirc: "â", ccedil: "ç", ugrave: "ù", ocirc: "ô", icirc: "î", euro: "€",
+};
+
+// The model sometimes HTML-escapes its JSON strings ("Systems &amp; Networks").
+function decodeEntities(text: string): string {
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, code: string) => {
+    if (code[0] === "#") {
+      const n = code[1].toLowerCase() === "x" ? parseInt(code.slice(2), 16) : parseInt(code.slice(1), 10);
+      return Number.isFinite(n) ? String.fromCodePoint(n) : match;
+    }
+    return NAMED_ENTITIES[code.toLowerCase()] ?? match;
+  });
+}
+
+function decodeDeep(value: unknown): unknown {
+  if (typeof value === "string") return decodeEntities(value);
+  if (Array.isArray(value)) return value.map(decodeDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, decodeDeep(v)]));
+  }
+  return value;
+}
+
+// Pulls the JSON object out of a model reply and cleans its strings.
+export function parseJsonReply(raw: string): any {
+  return decodeDeep(JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)));
+}

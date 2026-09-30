@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { callAiService } from "../aiClient.js";
+import { callAiService, parseJsonReply } from "../aiClient.js";
 import { listGoalsWithStats } from "./goals.js";
 
 // The user's profile: who they are, what they dream of, what the AI should
@@ -121,8 +121,7 @@ profileRouter.post("/draft", async (_req, res) => {
   try {
     const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
     const text: string = data.choices?.[0]?.message?.content ?? "";
-    const json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
-    const parsed = JSON.parse(json) as Record<string, unknown>;
+    const parsed = parseJsonReply(text) as Record<string, unknown>;
     const drafts: Partial<Record<SectionKey, string>> = {};
     for (const key of SECTION_KEYS) {
       if (typeof parsed[key] === "string") drafts[key as SectionKey] = (parsed[key] as string).trim();

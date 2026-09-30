@@ -13,6 +13,7 @@ import {
   type WatchStatus,
 } from '../api'
 import { TrashIcon } from '../icons'
+import { SwipeDeck } from './SwipeDeck'
 
 type Filter = 'jobs' | 'plans' | 'news' | 'all'
 
@@ -34,12 +35,44 @@ const CATEGORY_LABEL: Record<string, string> = {
 
 const DATE_TIME = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
+const STATUS_LABEL: Record<WatchStatus, string> = {
+  new: 'À trier',
+  seen: 'À trier',
+  interested: '♥ Aimé',
+  urgent: '⚡ Urgent',
+  dismissed: '✕ Pas pour moi',
+}
+
+function ItemCard({ item, fresh }: { item: WatchItem; fresh: boolean }) {
+  return (
+    <>
+      <div className="watch-item-head">
+        <span className="watch-badge">{CATEGORY_LABEL[item.category] ?? item.category}</span>
+        {fresh && <span className="watch-badge watch-badge--new">Nouveau</span>}
+        <span className={item.score >= 70 ? 'watch-score watch-score--high' : 'watch-score'}>{item.score}/100</span>
+      </div>
+      {item.url ? (
+        <a className="watch-item-title" href={item.url} target="_blank" rel="noopener noreferrer">
+          {item.title} ↗
+        </a>
+      ) : (
+        <span className="watch-item-title">{item.title}</span>
+      )}
+      <div className="watch-item-sub">
+        {[item.company, item.location, item.source_name && `via ${item.source_name}`].filter(Boolean).join(' · ')}
+      </div>
+      {item.reason && <p className="watch-item-reason">{item.reason}</p>}
+    </>
+  )
+}
+
 export function WatchPage() {
   const [items, setItems] = useState<WatchItem[] | null>(null)
   // Ids that were "new" when the page opened: they keep their badge while
   // the page is open even though they get marked seen on the server.
   const [freshIds, setFreshIds] = useState<Set<number>>(new Set())
-  const [filter, setFilter] = useState<Filter>('jobs')
+  const [view, setView] = useState<'deck' | 'history'>('deck')
+  const [filter, setFilter] = useState<Filter>('all')
   const [status, setStatus] = useState<{ running: boolean; lastRun: string | null } | null>(null)
   const [showSources, setShowSources] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -86,27 +119,26 @@ export function WatchPage() {
   }
 
   async function setItemStatus(item: WatchItem, next: WatchStatus) {
-    const value = item.status === next ? 'seen' : next
-    setItems((prev) => prev?.map((i) => (i.id === item.id ? { ...i, status: value } : i)) ?? null)
-    await setWatchItemStatus(item.id, value).catch((err) => setError((err as Error).message))
+    setItems((prev) => prev?.map((i) => (i.id === item.id ? { ...i, status: next } : i)) ?? null)
+    await setWatchItemStatus(item.id, next).catch((err) => setError((err as Error).message))
   }
 
   if (error && !items) return <div className="error">{error}</div>
   if (!items) return <div className="loading">Chargement…</div>
 
+  const toSort = items.filter((i) => i.status === 'new' || i.status === 'seen').sort((a, b) => b.score - a.score)
   const activeFilter = FILTERS.find((f) => f.id === filter)!
-  const visible = items.filter((i) => i.status !== 'dismissed' && activeFilter.match(i))
+  const sorted = items.filter((i) => i.status !== 'new' && i.status !== 'seen' && activeFilter.match(i))
 
   return (
     <div className="watch-page">
       <div className="glass-card">
-        <h2 className="section-title">Veille</h2>
         <p className="watch-meta">
           {status?.running
             ? 'Recherche en cours, ça prend quelques minutes…'
             : status?.lastRun
-              ? `Dernier passage : ${DATE_TIME.format(new Date(status.lastRun))}. Passage automatique chaque matin à 7h.`
-              : 'Pas encore de passage. Automatique chaque matin à 7h.'}
+              ? `Dernier passage : ${DATE_TIME.format(new Date(status.lastRun))}. Automatique à 7h et 18h.`
+              : 'Pas encore de passage. Automatique à 7h et 18h.'}
         </p>
         <button className="primary-button" onClick={handleRun} disabled={status?.running}>
           {status?.running ? 'Recherche en cours…' : 'Lancer maintenant'}
@@ -120,54 +152,76 @@ export function WatchPage() {
       {showSources && <SourcesCard />}
 
       <div className="segmented segmented--compact watch-filters">
-        {FILTERS.map((f) => (
-          <button
-            key={f.id}
-            className={filter === f.id ? 'segmented-option segmented-option--active' : 'segmented-option'}
-            onClick={() => setFilter(f.id)}
-          >
-            {f.label}
-          </button>
-        ))}
+        <button
+          className={view === 'deck' ? 'segmented-option segmented-option--active' : 'segmented-option'}
+          onClick={() => setView('deck')}
+        >
+          À trier ({toSort.length})
+        </button>
+        <button
+          className={view === 'history' ? 'segmented-option segmented-option--active' : 'segmented-option'}
+          onClick={() => setView('history')}
+        >
+          Historique
+        </button>
       </div>
 
-      {visible.length === 0 && (
-        <div className="glass-card">
-          <p className="pie-empty">Rien pour l'instant dans cette catégorie.</p>
-        </div>
+      {view === 'deck' && (
+        <>
+          <p className="swipe-help">→ j'aime · ← pas pour moi · ↑ urgent, à traiter aujourd'hui</p>
+          <SwipeDeck
+            items={toSort}
+            getKey={(i) => i.id}
+            render={(i) => <ItemCard item={i} fresh={freshIds.has(i.id)} />}
+            onSwipe={(i, dir) => setItemStatus(i, dir === 'right' ? 'interested' : dir === 'left' ? 'dismissed' : 'urgent')}
+            labels={{ left: 'NON', right: "J'AIME", up: 'URGENT' }}
+            empty={
+              <div className="glass-card">
+                <p className="pie-empty">Tout est trié. Les prochaines trouvailles arrivent à 7h et 18h.</p>
+              </div>
+            }
+          />
+        </>
       )}
 
-      {visible.map((item) => (
-        <div key={item.id} className="glass-card watch-item">
-          <div className="watch-item-head">
-            <span className="watch-badge">{CATEGORY_LABEL[item.category] ?? item.category}</span>
-            {freshIds.has(item.id) && <span className="watch-badge watch-badge--new">Nouveau</span>}
-            <span className={item.score >= 70 ? 'watch-score watch-score--high' : 'watch-score'}>{item.score}/100</span>
+      {view === 'history' && (
+        <>
+          <div className="segmented segmented--compact watch-filters">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                className={filter === f.id ? 'segmented-option segmented-option--active' : 'segmented-option'}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}
+              </button>
+            ))}
           </div>
-          {item.url ? (
-            <a className="watch-item-title" href={item.url} target="_blank" rel="noopener noreferrer">
-              {item.title}
-            </a>
-          ) : (
-            <span className="watch-item-title">{item.title}</span>
+          {sorted.length === 0 && (
+            <div className="glass-card">
+              <p className="pie-empty">Rien de trié dans cette catégorie.</p>
+            </div>
           )}
-          <div className="watch-item-sub">
-            {[item.company, item.location, item.source_name && `via ${item.source_name}`].filter(Boolean).join(' · ')}
-          </div>
-          {item.reason && <p className="watch-item-reason">{item.reason}</p>}
-          <div className="watch-item-actions">
-            <button
-              className={item.status === 'interested' ? 'text-button watch-action watch-action--on' : 'text-button watch-action'}
-              onClick={() => setItemStatus(item, 'interested')}
-            >
-              ⭐ M'intéresse
-            </button>
-            <button className="text-button watch-action" onClick={() => setItemStatus(item, 'dismissed')}>
-              ✕ Pas pour moi
-            </button>
-          </div>
-        </div>
-      ))}
+          {sorted.map((item) => (
+            <div key={item.id} className="glass-card watch-item">
+              <ItemCard item={item} fresh={false} />
+              <div className="watch-item-actions">
+                <span className="watch-status">{STATUS_LABEL[item.status]}</span>
+                {(['interested', 'urgent', 'dismissed'] as WatchStatus[])
+                  .filter((s) => s !== item.status)
+                  .map((s) => (
+                    <button key={s} className="text-button watch-action" onClick={() => setItemStatus(item, s)}>
+                      {STATUS_LABEL[s]}
+                    </button>
+                  ))}
+                <button className="text-button watch-action" onClick={() => setItemStatus(item, 'seen')}>
+                  ↺ À retrier
+                </button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }

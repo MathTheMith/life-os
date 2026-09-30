@@ -512,7 +512,7 @@ export async function finishEveningChat(conversationId: number): Promise<string>
 }
 
 export type WatchCategory = 'stage' | 'alternance' | 'emploi' | 'bon_plan' | 'evenement' | 'actu'
-export type WatchStatus = 'new' | 'seen' | 'interested' | 'dismissed'
+export type WatchStatus = 'new' | 'seen' | 'interested' | 'dismissed' | 'urgent'
 
 export interface WatchItem {
   id: number
@@ -600,7 +600,11 @@ export interface MailItem {
   summary: string | null
   action: string | null
   ai_status: 'pending' | 'done' | 'excluded'
+  user_rating: 'important' | 'not' | null
 }
+
+export const rateMail = async (id: number, rating: 'important' | 'not' | null) =>
+  json(await fetch(`/api/mail/${id}/rate`, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({ rating }) }), 'Erreur')
 
 export const fetchMails = async () => json<MailItem[]>(await fetch('/api/mail'), 'Erreur chargement mails')
 
@@ -630,3 +634,35 @@ export const fetchTodayBrief = async () => json<Brief | null>(await fetch('/api/
 
 export const regenerateBrief = async () =>
   json<Brief>(await fetch('/api/brief/today', { method: 'POST' }), 'Erreur de génération du brief')
+
+export type ActionKind = 'candidature' | 'relance' | 'sortie' | 'preparation'
+
+export interface LifeAction {
+  id: number
+  kind: ActionKind
+  status: 'scheduled' | 'proposed' | 'accepted' | 'done' | 'dismissed'
+  title: string
+  reason: string | null
+  body_md: string | null
+  mail_to: string | null
+  mail_subject: string | null
+  mail_body: string | null
+  agenda_title: string | null
+  agenda_start: string | null
+}
+
+export const fetchActions = async () => json<LifeAction[]>(await fetch('/api/actions'), 'Erreur chargement actions')
+
+export const acceptAction = async (id: number) =>
+  json<LifeAction>(await fetch(`/api/actions/${id}/accept`, { method: 'POST' }), 'Erreur')
+
+export const completeAction = async (id: number) =>
+  json<LifeAction>(await fetch(`/api/actions/${id}/done`, { method: 'POST' }), 'Erreur')
+
+export const dismissAction = async (id: number) =>
+  json<LifeAction>(await fetch(`/api/actions/${id}/dismiss`, { method: 'POST' }), 'Erreur')
+
+export const updateActionDraft = async (id: number, fields: { mail_to?: string | null; mail_subject?: string; mail_body?: string }) =>
+  json<LifeAction>(await fetch(`/api/actions/${id}`, { method: 'PUT', headers: JSON_HEADERS, body: JSON.stringify(fields) }), 'Erreur')
+
+export const runActionsNow = async () => json(await fetch('/api/actions/run', { method: 'POST' }), 'Erreur')

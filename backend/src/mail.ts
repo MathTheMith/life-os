@@ -1,7 +1,7 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import { db } from "./db.js";
-import { callAiService } from "./aiClient.js";
+import { callAiService, parseJsonReply } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
 import { addEvent, parisNowLocal, parisToUtc } from "./routes/agenda.js";
 import { getState, setState } from "./state.js";
@@ -35,6 +35,12 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_mail_date ON mail_messages(date);
 `);
+
+// user_rating: the user's swipe on a mail, "important" or "not", used as
+// examples for the next triages.
+if (!(db.prepare("PRAGMA table_info(mail_messages)").all() as { name: string }[]).some((c) => c.name === "user_rating")) {
+  db.exec("ALTER TABLE mail_messages ADD COLUMN user_rating TEXT");
+}
 
 // notified: an urgent mail already pushed. Mails that existed before this
 // column are marked as notified so enabling it doesn't flood the phone.
@@ -154,6 +160,20 @@ function isUpcoming(start: string): boolean {
   return at.getTime() > Date.now();
 }
 
+function ratingExamples(): string {
+  const rows = db
+    .prepare(
+      "SELECT from_name, from_addr, subject, user_rating FROM mail_messages WHERE user_rating IS NOT NULL ORDER BY date DESC LIMIT 40"
+    )
+    .all() as { from_name: string | null; from_addr: string | null; subject: string | null; user_rating: string }[];
+  const fmt = (rating: string) =>
+    rows
+      .filter((r) => r.user_rating === rating)
+      .map((r) => `- ${r.from_name || ""} <${r.from_addr ?? ""}> : ${r.subject ?? ""}`)
+      .join("\n") || "(aucun)";
+  return `Ce qu'il juge important :\n${fmt("important")}\n\nCe qu'il juge sans intérêt :\n${fmt("not")}`;
+}
+
 async function triageBatch(mails: PendingMail[]) {
   const list = mails
     .map(
@@ -176,11 +196,13 @@ async function triageBatch(mails: PendingMail[]) {
     "- evenement : seulement si le mail fixe une date précise À VENIR qui le concerne (entretien, rendez-vous, échéance, course, livraison importante). Heure de Paris. " +
     "rappels_min en minutes avant : entretien ou échéance importante [10080, 4320, 1440, 720, 60], rendez-vous [1440, 120].\n" +
     "- resume et action : concrets, en français correct avec les accents, pas de tirets cadratins.\n\n" +
-    `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n## Mails\n${list}`;
+    `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n` +
+    `## Ses jugements passés (ajuste l'importance sur ces exemples, même expéditeur ou même type de mail)\n${ratingExamples()}\n\n` +
+    `## Mails\n${list}`;
 
   const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
   const raw: string = data.choices?.[0]?.message?.content ?? "";
-  const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+  const parsed = parseJsonReply(raw);
   const results: any[] = Array.isArray(parsed.mails) ? parsed.mails : [];
 
   const update = db.prepare(
@@ -291,7 +313,7 @@ export function startMailScheduler() {
 export function listMails(days: number, minImportance = 0) {
   return db
     .prepare(
-      `SELECT id, account, from_name, from_addr, subject, date, importance, category, summary, action, ai_status
+      `SELECT id, account, from_name, from_addr, subject, date, importance, category, summary, action, ai_status, user_rating
        FROM mail_messages WHERE date >= datetime('now', ?) AND (importance IS NULL OR importance >= ?)
        ORDER BY date DESC`
     )

@@ -32,6 +32,8 @@ services:
     volumes:
       - life-os-data:/app/data
       - ./secrets/enablebanking/private.key:/run/secrets/enablebanking_private.key:ro
+      # Cover letters and CV the AI reuses for applications.
+      - /root/motorsport_internship/candidatures:/app/candidatures:ro
     ports:
       - "127.0.0.1:4100:3001"
 

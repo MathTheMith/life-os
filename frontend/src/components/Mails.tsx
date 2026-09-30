@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchMails, fetchMailStatus, runMailNow, type MailItem } from '../api'
+import { fetchMails, fetchMailStatus, runMailNow, rateMail, type MailItem } from '../api'
+import { SwipeDeck } from './SwipeDeck'
 
 const CATEGORY_LABEL: Record<string, string> = {
   recrutement: 'Recrutement',
@@ -17,6 +18,7 @@ const DATE_TIME = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'sho
 export function MailsPage() {
   const [mails, setMails] = useState<MailItem[] | null>(null)
   const [status, setStatus] = useState<Awaited<ReturnType<typeof fetchMailStatus>> | null>(null)
+  const [view, setView] = useState<'deck' | 'list'>('deck')
   const [showAll, setShowAll] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pollRef = useRef<number | null>(null)
@@ -56,7 +58,13 @@ export function MailsPage() {
     )
   }
 
-  const important = mails.filter((m) => (m.importance ?? 0) >= 50)
+  async function rate(mail: MailItem, rating: MailItem['user_rating']) {
+    setMails((prev) => prev?.map((m) => (m.id === mail.id ? { ...m, user_rating: rating } : m)) ?? null)
+    await rateMail(mail.id, rating).catch((err) => setError((err as Error).message))
+  }
+
+  const toRate = mails.filter((m) => m.ai_status === 'done' && !m.user_rating).sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0))
+  const important = mails.filter((m) => (m.user_rating ? m.user_rating === 'important' : (m.importance ?? 0) >= 50))
   const visible = showAll ? mails : important
 
   return (
@@ -80,33 +88,94 @@ export function MailsPage() {
         <button className="primary-button" onClick={handleRun} disabled={status.running}>
           {status.running ? 'Lecture en cours…' : 'Lire maintenant'}
         </button>
-        <button className="text-button watch-sources-toggle" onClick={() => setShowAll((v) => !v)}>
-          {showAll ? 'Seulement les importants' : `Voir tous les mails (${mails.length})`}
+        {view === 'list' && (
+          <button className="text-button watch-sources-toggle" onClick={() => setShowAll((v) => !v)}>
+            {showAll ? 'Seulement les importants' : `Voir tous les mails (${mails.length})`}
+          </button>
+        )}
+      </div>
+
+      <div className="segmented segmented--compact watch-filters">
+        <button
+          className={view === 'deck' ? 'segmented-option segmented-option--active' : 'segmented-option'}
+          onClick={() => setView('deck')}
+        >
+          À trier ({toRate.length})
+        </button>
+        <button
+          className={view === 'list' ? 'segmented-option segmented-option--active' : 'segmented-option'}
+          onClick={() => setView('list')}
+        >
+          Liste
         </button>
       </div>
 
-      {visible.length === 0 && (
+      {view === 'deck' && (
+        <>
+          <p className="swipe-help">→ important pour moi · ← sans intérêt. L'IA apprend de tes choix.</p>
+          <SwipeDeck
+            items={toRate}
+            getKey={(m) => m.id}
+            render={(m) => <MailCard mail={m} />}
+            onSwipe={(m, dir) => rate(m, dir === 'right' ? 'important' : 'not')}
+            labels={{ left: 'SANS INTÉRÊT', right: 'IMPORTANT' }}
+            empty={
+              <div className="glass-card">
+                <p className="pie-empty">Tous tes mails sont triés.</p>
+              </div>
+            }
+          />
+        </>
+      )}
+
+      {view === 'list' && visible.length === 0 && (
         <div className="glass-card">
           <p className="pie-empty">Aucun mail important ces 14 derniers jours.</p>
         </div>
       )}
 
-      {visible.map((m) => (
-        <div key={m.id} className="glass-card watch-item">
-          <div className="watch-item-head">
-            <span className="watch-badge">{CATEGORY_LABEL[m.category ?? ''] ?? (m.ai_status === 'pending' ? 'À trier' : 'Exclu')}</span>
-            {m.importance !== null && (
-              <span className={m.importance >= 70 ? 'watch-score watch-score--high' : 'watch-score'}>{m.importance}/100</span>
-            )}
+      {view === 'list' &&
+        visible.map((m) => (
+          <div key={m.id} className="glass-card watch-item">
+            <MailCard mail={m} />
+            <div className="watch-item-actions">
+              <span className="watch-status">
+                {m.user_rating === 'important' ? '♥ Important' : m.user_rating === 'not' ? '✕ Sans intérêt' : 'Pas trié'}
+              </span>
+              {m.user_rating !== 'important' && (
+                <button className="text-button watch-action" onClick={() => rate(m, 'important')}>
+                  ♥ Important
+                </button>
+              )}
+              {m.user_rating !== 'not' && (
+                <button className="text-button watch-action" onClick={() => rate(m, 'not')}>
+                  ✕ Sans intérêt
+                </button>
+              )}
+            </div>
           </div>
-          <span className="watch-item-title">{m.subject}</span>
-          <div className="watch-item-sub">
-            {[m.from_name || m.from_addr, DATE_TIME.format(new Date(m.date))].filter(Boolean).join(' · ')}
-          </div>
-          {m.summary && <p className="watch-item-reason">{m.summary}</p>}
-          {m.action && <p className="mail-action">👉 {m.action}</p>}
-        </div>
-      ))}
+        ))}
     </div>
+  )
+}
+
+function MailCard({ mail }: { mail: MailItem }) {
+  return (
+    <>
+      <div className="watch-item-head">
+        <span className="watch-badge">
+          {CATEGORY_LABEL[mail.category ?? ''] ?? (mail.ai_status === 'pending' ? 'À trier' : 'Exclu')}
+        </span>
+        {mail.importance !== null && (
+          <span className={mail.importance >= 70 ? 'watch-score watch-score--high' : 'watch-score'}>{mail.importance}/100</span>
+        )}
+      </div>
+      <span className="watch-item-title">{mail.subject}</span>
+      <div className="watch-item-sub">
+        {[mail.from_name || mail.from_addr, DATE_TIME.format(new Date(mail.date))].filter(Boolean).join(' · ')}
+      </div>
+      {mail.summary && <p className="watch-item-reason">{mail.summary}</p>}
+      {mail.action && <p className="mail-action">👉 {mail.action}</p>}
+    </>
   )
 }

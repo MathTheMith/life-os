@@ -2,10 +2,12 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { runWatch, isWatchRunning } from "../watch.js";
 import { getState } from "../state.js";
+import { prepareCandidature } from "../actions.js";
 
 export const watchRouter = Router();
 
-const STATUSES = ["new", "seen", "interested", "dismissed"];
+// interested = swiped right, dismissed = left, urgent = up (act today).
+const STATUSES = ["new", "seen", "interested", "dismissed", "urgent"];
 
 // Items seen in the last 30 days (starred ones always), best first.
 watchRouter.get("/items", (_req, res) => {
@@ -24,6 +26,18 @@ watchRouter.post("/items/:id/status", (req, res) => {
   const status = String(req.body?.status ?? "");
   if (!STATUSES.includes(status)) return res.status(400).json({ error: "Statut invalide." });
   db.prepare("UPDATE watch_items SET status = ? WHERE id = ?").run(status, req.params.id);
+  // Swipe up: act today. Offers get their application prepared right away
+  // (plus a task and an afternoon nudge), anything else becomes a task.
+  if (status === "urgent") {
+    const item = db.prepare("SELECT id, category, title, company FROM watch_items WHERE id = ?").get(req.params.id) as
+      | { id: number; category: string; title: string; company: string | null }
+      | undefined;
+    if (item && ["stage", "alternance", "emploi"].includes(item.category)) {
+      prepareCandidature(item.id, true).catch((err) => console.error("Candidature urgente :", err));
+    } else if (item) {
+      db.prepare("INSERT INTO todos (title) VALUES (?)").run(`Aujourd'hui : ${item.title}${item.company ? ` (${item.company})` : ""}`);
+    }
+  }
   res.json({ ok: true });
 });
 

@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
 import { db } from "./db.js";
-import { callAiService } from "./aiClient.js";
+import { callAiService, parseJsonReply } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
 import { getState, setState, parisNow } from "./state.js";
 
-// Daily web watch. Each source is a page (career page, job board listing,
+// Web watch, twice a day. Each source is a page (career page, job board listing,
 // circuit or karting site) or a Workday job portal. Once a day the text of
 // every source is fetched; when it changed since last time, the model pulls
 // out the listings that match the profile's "what to watch" section and
@@ -79,7 +79,7 @@ interface Source {
 
 // Visible text of a page, links kept as "text (url)" so the model can hand
 // back each listing's own link.
-function pageToText(html: string, baseUrl: string): string {
+export function pageToText(html: string, baseUrl: string): string {
   let s = html.replace(/<(script|style|noscript|svg|head)[^>]*>[\s\S]*?<\/\1>/gi, " ");
   s = s.replace(/<a\b[^>]*href=["']([^"'#]+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, inner: string) => {
     const text = inner.replace(/<[^>]+>/g, " ").trim();
@@ -133,12 +133,12 @@ async function fetchSourceText(source: Source): Promise<string> {
 function feedbackExamples(): string {
   const rows = db
     .prepare(
-      "SELECT title, company, status FROM watch_items WHERE status IN ('interested', 'dismissed') ORDER BY last_seen_at DESC LIMIT 30"
+      "SELECT title, company, status FROM watch_items WHERE status IN ('interested', 'urgent', 'dismissed') ORDER BY last_seen_at DESC LIMIT 30"
     )
     .all() as { title: string; company: string | null; status: string }[];
   const fmt = (status: string) =>
     rows
-      .filter((r) => r.status === status)
+      .filter((r) => (status === "interested" ? r.status === "interested" || r.status === "urgent" : r.status === status))
       .map((r) => `- ${r.title}${r.company ? ` (${r.company})` : ""}`)
       .join("\n") || "(aucun)";
   return `Ce qui l'a intéressé :\n${fmt("interested")}\n\nCe qu'il a écarté :\n${fmt("dismissed")}`;
@@ -172,7 +172,7 @@ async function extractItems(source: Source, text: string): Promise<ExtractedItem
 
   const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
   const raw: string = data.choices?.[0]?.message?.content ?? "";
-  const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+  const parsed = parseJsonReply(raw);
   return Array.isArray(parsed.items) ? parsed.items : [];
 }
 
@@ -245,21 +245,24 @@ export async function runWatch(): Promise<{ added: number }> {
       added += (await checkSource(source)).added;
     }
     setState("watch_last_run", new Date().toISOString());
-    setState("watch_last_run_date", parisNow().date);
   } finally {
     running = false;
   }
   return { added };
 }
 
-// Once a day from 7:00 (Paris), so fresh results are ready for the 9:00
-// brief. Checked every 15 minutes rather than scheduled at an exact time,
-// so a restart or a missed tick just runs it on the next check.
-const WATCH_HOUR = 7;
+// Morning (ready for the 9:00 brief) and early evening (the day's new
+// offers). Checked every 15 minutes rather than scheduled at an exact
+// time, so a restart or a missed tick just runs it on the next check.
+const WATCH_HOURS = [7, 18];
 export function startWatchScheduler() {
   const tick = () => {
     const now = parisNow();
-    if (now.hour >= WATCH_HOUR && getState("watch_last_run_date") !== now.date) {
+    const slot = [...WATCH_HOURS].reverse().find((h) => now.hour >= h);
+    if (slot === undefined) return;
+    const key = `${now.date}@${slot}`;
+    if (getState("watch_last_slot") !== key) {
+      setState("watch_last_slot", key);
       runWatch().catch((err) => console.error("Veille :", err));
     }
   };
@@ -287,7 +290,7 @@ export function getWatchForPrompt(minScore = 60, days = 7): string {
   return rows
     .map(
       (r) =>
-        `- [${r.category}, ${r.score}/100${r.status === "interested" ? ", ⭐" : ""}] ${r.title}` +
+        `- [${r.category}, ${r.score}/100${r.status === "interested" ? ", aimé" : r.status === "urgent" ? ", coup de cœur urgent" : ""}] ${r.title}` +
         `${r.company ? ` chez ${r.company}` : ""}${r.location ? ` (${r.location})` : ""}${r.reason ? ` : ${r.reason}` : ""}`
     )
     .join("\n");

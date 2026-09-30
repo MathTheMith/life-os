@@ -10,6 +10,7 @@ import { getWatchForPrompt } from "../watch.js";
 import { getAgendaForPrompt } from "./agenda.js";
 import { getMailForPrompt } from "../mail.js";
 import { getTodayBriefForPrompt } from "../brief.js";
+import { getActionsForPrompt } from "../actions.js";
 
 export const chatRouter = Router();
 
@@ -134,6 +135,8 @@ chatRouter.post("/", async (req, res) => {
   if (mails) systemPrompt += `\n\n## Mails importants des 3 derniers jours\n${mails}`;
   const brief = getTodayBriefForPrompt();
   if (brief) systemPrompt += `\n\n## Le brief que tu lui as envoyé ce matin\n${brief}`;
+  const actions = getActionsForPrompt();
+  if (actions) systemPrompt += `\n\n## Actions que tu lui as préparées (il les valide dans l'onglet Planning)\n${actions}`;
   const watch = getWatchForPrompt();
   if (watch) systemPrompt += `\n\n## Veille : trouvailles pertinentes des 7 derniers jours (score sur 100)\n${watch}`;
   if (conversation?.kind === "soir") systemPrompt += `\n\n${getEveningInstructions()}`;

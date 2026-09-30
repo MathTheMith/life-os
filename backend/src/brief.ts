@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { db } from "./db.js";
-import { callAiService } from "./aiClient.js";
+import { callAiService, parseJsonReply } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
 import { getJournalForPrompt } from "./routes/journal.js";
 import { listAgenda, parisNowLocal } from "./routes/agenda.js";
 import { getWatchForPrompt } from "./watch.js";
 import { sendPush } from "./push.js";
 import { getState, setState, parisNow } from "./state.js";
+import { generateMorningActions, getActionsForPrompt } from "./actions.js";
 
 // The daily rhythm: the morning brief at 9:00, and the evening chat
 // reminder at 21:30 when the day's journal isn't written yet. Both are
@@ -75,6 +76,7 @@ export async function generateBrief(date: string): Promise<{ notification: { tit
     section("Todos en cours", pendingTodos()),
     section("Journal des 3 derniers jours", getJournalForPrompt(3)),
     section("Questions que tu voulais lui poser", pendingQuestions()),
+    section("Actions que tu lui as préparées (il répond oui/non dans l'app)", getActionsForPrompt()),
   ].join("\n\n");
 
   const prompt =
@@ -90,6 +92,7 @@ export async function generateBrief(date: string): Promise<{ notification: { tit
     "- 📅 **Aujourd'hui** : ce qui est prévu, avec les heures, et ce qu'il faut préparer.\n" +
     "- 📬 **Mails** : seulement ce qui demande une action ou compte vraiment.\n" +
     "- 🎯 **Veille** : les nouvelles trouvailles pertinentes, avec pourquoi.\n" +
+    "- ✅ **Prêt pour toi** : les actions préparées qui attendent son oui (candidatures, relances, sorties, fiches), en une ligne chacune.\n" +
     "- 🗓️ **Cette semaine** : ce qui arrive et qu'il faut anticiper dès maintenant.\n" +
     "- 💡 **Le conseil du jour** : UNE action concrète qui le rapproche de ses rêves ou objectifs, tirée de son profil et de son journal.\n" +
     "Pas d'introduction ni de conclusion, pas de flatterie. N'invente rien qui ne soit pas dans le contexte.\n\n" +
@@ -97,7 +100,7 @@ export async function generateBrief(date: string): Promise<{ notification: { tit
 
   const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
   const raw: string = data.choices?.[0]?.message?.content ?? "";
-  const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+  const parsed = parseJsonReply(raw);
   return {
     notification: {
       title: String(parsed.notif_titre ?? "Ton brief du jour").slice(0, 60),
@@ -154,6 +157,8 @@ async function tick() {
     const now = parisNow();
     if (now.hour >= BRIEF_HOUR && now.hour < BRIEF_LAST_HOUR && getState("brief_last_date") !== now.date) {
       setState("brief_last_date", now.date);
+      // The day's actions first, so the brief can mention them.
+      await generateMorningActions().catch((err) => console.error("Actions :", err));
       await runBrief(now.date).catch((err) => console.error("Brief :", err));
     }
     const minutes = now.hour * 60 + now.minute;

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
-import { callAiService } from "../aiClient.js";
+import { callAiService, parseJsonReply } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
 import { addEvent, parisToUtc } from "./agenda.js";
 
@@ -130,7 +130,7 @@ async function analyzeEntry(id: number): Promise<ReturnType<typeof toApi> | unde
   try {
     const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
     const text: string = data.choices?.[0]?.message?.content ?? "";
-    const parsed = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+    const parsed = parseJsonReply(text);
     const strings = (value: unknown) => (Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : []);
     const facts = strings(parsed.faits);
     const questions = strings(parsed.questions).slice(0, 2);
