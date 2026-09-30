@@ -9,6 +9,8 @@ import { sendPush } from "./push.js";
 import { getState, setState, parisNow } from "./state.js";
 import { generateMorningActions, getActionsForPrompt } from "./actions.js";
 import { toneInstructions, adjustCoach } from "./coach.js";
+import { listEnvelopesWithSummary } from "./routes/envelope.js";
+import { getBudgetSummary } from "./routes/budget.js";
 
 // The daily rhythm: the morning brief at 9:00, and the evening chat
 // reminder at 21:30 when the day's journal isn't written yet. Both are
@@ -57,6 +59,14 @@ function mailsSinceYesterday(): string {
     .join("\n");
 }
 
+function budgetForPrompt(date: string): string {
+  const month = getBudgetSummary(date.slice(0, 7)) as { totalIncome: number; totalSpent: number; balance: number };
+  const envelopes = (listEnvelopesWithSummary() as { name: string; total_amount: number; spent: number; remaining: number; onTrack: boolean }[])
+    .map((e) => `- Enveloppe ${e.name} : ${Math.round(e.spent)} € dépensés sur ${Math.round(e.total_amount)} €, reste ${Math.round(e.remaining)} € (${e.onTrack ? "dans les clous" : "rythme trop élevé"})`)
+    .join("\n");
+  return `Mois en cours : ${Math.round(month.totalIncome)} € de rentrées, ${Math.round(month.totalSpent)} € de dépenses, solde ${Math.round(month.balance)} €\n${envelopes}`;
+}
+
 function pendingTodos(): string {
   return (db.prepare("SELECT title FROM todos WHERE done = 0 ORDER BY created_at LIMIT 15").all() as { title: string }[])
     .map((t) => `- ${t.title}`)
@@ -81,6 +91,7 @@ export async function generateBrief(
     section("Mails importants depuis hier", mailsSinceYesterday()),
     section("Veille : trouvailles des dernières 24 h (score sur 100)", getWatchForPrompt(60, 1)),
     section("Todos en cours", pendingTodos()),
+    section("Budget", budgetForPrompt(date)),
     section("Journal des 3 derniers jours", getJournalForPrompt(3)),
     section("Questions que tu voulais lui poser", pendingQuestions()),
     section("Actions que tu lui as préparées (il répond oui/non dans l'app)", getActionsForPrompt()),
@@ -100,7 +111,9 @@ export async function generateBrief(
     "Tu vérifieras ce soir s'il les a tenus.\n" +
     "question : UNE question courte que tu aimerais lui poser aujourd'hui pour mieux le connaître et mieux le conseiller : sa vie, ses ambitions, " +
     "son matériel, ses finances, ses habitudes, ses goûts... Vise un vrai manque (ligne « À compléter » du profil, sujet jamais abordé), " +
-    "pas une question déjà répondue. Tutoiement. Elle est affichée à part, ne la mets pas dans le brief.\n\n" +
+    "pas une question déjà répondue ni une question dont la réponse est dans l'app (budget, agenda, mails, candidatures : tu les as ci-dessous). " +
+    "Tutoiement. Elle est affichée à part, ne la mets pas dans le brief.\n" +
+    "Ne propose jamais de postuler à une offre marquée CANDIDATURE DÉJÀ ENVOYÉE.\n\n" +
     "Le brief, court et lisible sur téléphone, en français avec accents, tutoiement, pas de tirets cadratins, uniquement les rubriques qui ont du contenu :\n" +
     "- 📅 **Aujourd'hui** : ce qui est prévu, avec les heures, et ce qu'il faut préparer.\n" +
     "- 📬 **Mails** : seulement ce qui demande une action ou compte vraiment.\n" +

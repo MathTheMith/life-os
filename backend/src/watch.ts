@@ -274,7 +274,9 @@ export function startWatchScheduler() {
 export function getWatchForPrompt(minScore = 60, days = 7): string {
   const rows = db
     .prepare(
-      `SELECT category, title, company, location, score, reason, status FROM watch_items
+      `SELECT category, title, company, location, score, reason, status,
+         (SELECT a.status FROM actions a WHERE a.watch_item_id = watch_items.id AND a.kind = 'candidature' ORDER BY a.id DESC LIMIT 1) AS application
+       FROM watch_items
        WHERE score >= ? AND status != 'dismissed' AND first_seen_at >= datetime('now', ?)
        ORDER BY score DESC LIMIT 15`
     )
@@ -286,11 +288,18 @@ export function getWatchForPrompt(minScore = 60, days = 7): string {
     score: number;
     reason: string | null;
     status: string;
+    application: string | null;
   }[];
+  const applicationLabel: Record<string, string> = {
+    done: "CANDIDATURE DÉJÀ ENVOYÉE",
+    accepted: "candidature en brouillon, pas encore envoyée",
+    proposed: "candidature préparée, en attente de son oui",
+  };
   return rows
     .map(
       (r) =>
-        `- [${r.category}, ${r.score}/100${r.status === "interested" ? ", aimé" : r.status === "urgent" ? ", coup de cœur urgent" : ""}] ${r.title}` +
+        `- [${r.category}, ${r.score}/100${r.status === "interested" ? ", aimé" : r.status === "urgent" ? ", coup de cœur urgent" : ""}` +
+        `${r.application && applicationLabel[r.application] ? `, ${applicationLabel[r.application]}` : ""}] ${r.title}` +
         `${r.company ? ` chez ${r.company}` : ""}${r.location ? ` (${r.location})` : ""}${r.reason ? ` : ${r.reason}` : ""}`
     )
     .join("\n");
