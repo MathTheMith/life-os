@@ -1676,3 +1676,15 @@
   color: var(--accent-strong);
   margin-top: 6px;
 }
+
+/* ---------- Evening chat ---------- */
+
+.chat-topbar-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-finish-evening {
+  align-self: center;
+  margin: 4px 0 6px;
+}

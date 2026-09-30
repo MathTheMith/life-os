@@ -5,6 +5,7 @@ import { saveImageDataUrl } from "../imageStore.js";
 import { describeImage } from "../imageDescribe.js";
 import { callAiService } from "../aiClient.js";
 import { getProfileForPrompt } from "./profile.js";
+import { getJournalForPrompt, EVENING_INSTRUCTIONS } from "./journal.js";
 
 export const chatRouter = Router();
 
@@ -57,13 +58,13 @@ chatRouter.post("/", async (req, res) => {
     imageDescription?: string; // already computed by /describe-image before this request was sent
   };
 
-  let conversation: { id: number; title: string; memory: string | null } | undefined;
+  let conversation: { id: number; title: string; memory: string | null; kind: string } | undefined;
   let history: ChatMessage[];
   let userMessage: string | undefined;
 
   if (conversationId) {
-    conversation = db.prepare("SELECT id, title, memory FROM conversations WHERE id = ?").get(conversationId) as
-      | { id: number; title: string; memory: string | null }
+    conversation = db.prepare("SELECT id, title, memory, kind FROM conversations WHERE id = ?").get(conversationId) as
+      | { id: number; title: string; memory: string | null; kind: string }
       | undefined;
     if (!conversation) return res.status(404).json({ error: "Conversation introuvable." });
     if (!message && !incomingImage) return res.status(400).json({ error: "message ou image requis" });
@@ -105,6 +106,9 @@ chatRouter.post("/", async (req, res) => {
   const assistantNotes = getAssistantNotes();
   if (assistantNotes) systemPrompt += `\n\n## Tes notes personnelles (ta propre mémoire, tu la gères seul)\n${assistantNotes}`;
   if (conversation?.memory) systemPrompt += `\n\n## Mémoire propre à cette conversation\n${conversation.memory}`;
+  const journal = getJournalForPrompt(7);
+  if (journal) systemPrompt += `\n\n## Journal des 7 derniers jours (résumés de ses chats du soir)\n${journal}`;
+  if (conversation?.kind === "soir") systemPrompt += `\n\n${EVENING_INSTRUCTIONS}`;
 
   const tools = toolDefinitions(!!conversationId);
   const workingMessages: any[] = [{ role: "system", content: systemPrompt }, ...history];

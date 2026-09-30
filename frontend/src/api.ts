@@ -49,6 +49,7 @@ export async function sendChat(payload: {
 export interface Conversation {
   id: number
   title: string
+  kind?: 'normal' | 'soir'
   created_at: string
   updated_at: string
 }
@@ -490,4 +491,22 @@ export async function draftProfile(): Promise<Record<string, string>> {
     throw new Error(err.error || 'Erreur brouillon')
   }
   return res.json()
+}
+
+// Opens (or reopens) today's evening chat.
+export async function openEveningChat(): Promise<{ id: number; title: string }> {
+  const res = await fetch('/api/journal/evening', { method: 'POST' })
+  if (!res.ok) throw new Error("Impossible d'ouvrir le chat du soir")
+  return res.json()
+}
+
+// Saves the evening chat as the day's journal entry; returns the AI's recap.
+export async function finishEveningChat(conversationId: number): Promise<string> {
+  const res = await fetch(`/api/journal/evening/${conversationId}/finish`, { method: 'POST' })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }))
+    throw new Error(err.error || "Erreur d'enregistrement du journal")
+  }
+  const data = await res.json()
+  return data.message as string
 }

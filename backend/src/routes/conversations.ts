@@ -6,7 +6,7 @@ import { db, uploadsDir } from "../db.js";
 export const conversationsRouter = Router();
 
 conversationsRouter.get("/", (_req, res) => {
-  res.json(db.prepare("SELECT id, title, created_at, updated_at FROM conversations ORDER BY updated_at DESC").all());
+  res.json(db.prepare("SELECT id, title, kind, created_at, updated_at FROM conversations ORDER BY updated_at DESC").all());
 });
 
 conversationsRouter.post("/", (req, res) => {

@@ -6,6 +6,7 @@ import { getBudgetSummary } from "./routes/budget.js";
 import { listEnvelopesWithSummary } from "./routes/envelope.js";
 import { listGoalsWithStats } from "./routes/goals.js";
 import { PROFILE_SECTIONS, setProfileSection } from "./routes/profile.js";
+import { listJournal } from "./routes/journal.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -90,6 +91,20 @@ const READ_TOOLS = [
       description:
         "État de la synchronisation bancaire : banques connectées, comptes associés, date d'expiration du consentement (valid_until) et date de dernière synchro par compte.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_journal",
+      description:
+        "Entrées du journal de Mathéo (issues de ses chats du soir) : date, texte complet, humeur et énergie sur 5, résumé, faits retenus. Les 7 derniers jours sont déjà résumés dans le contexte : n'utilise cet outil que pour remonter plus loin ou lire le détail.",
+      parameters: {
+        type: "object",
+        properties: {
+          days: { type: "number", description: "Nombre de jours à remonter (défaut 30)." },
+        },
+      },
     },
   },
   {
@@ -238,6 +253,8 @@ export function executeTool(
         return JSON.stringify(db.prepare("SELECT * FROM todos ORDER BY done ASC, created_at DESC").all());
       case "get_bank_connections":
         return JSON.stringify(getBankConnections());
+      case "get_journal":
+        return JSON.stringify(listJournal(Number(args.days) > 0 ? Number(args.days) : 30));
       case "get_motorsport_plan":
         return getMotorsportPlan();
       case "update_profile_section":

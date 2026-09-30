@@ -8,10 +8,12 @@ import {
   createConversation,
   fetchConversationMessages,
   deleteConversation,
+  openEveningChat,
+  finishEveningChat,
   type ChatMessage,
   type Conversation,
 } from '../api'
-import { SendIcon, HistoryIcon, PlusIcon, CloseIcon, TrashIcon, ImageIcon } from '../icons'
+import { SendIcon, HistoryIcon, PlusIcon, CloseIcon, TrashIcon, ImageIcon, MoonIcon } from '../icons'
 import { resizeImageFile } from '../imageResize'
 
 // Wide GFM tables need their own horizontal scroll — otherwise a 5-column
@@ -48,7 +50,7 @@ const MessageBubble = memo(function MessageBubble({ role, content, image }: Chat
 
 type ActiveChat =
   | { kind: 'temporary'; messages: ChatMessage[] }
-  | { kind: 'saved'; id: number; title: string; messages: ChatMessage[] }
+  | { kind: 'saved'; id: number; title: string; messages: ChatMessage[]; evening?: boolean }
 
 const RELATIVE_FORMAT = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short' })
 function formatDate(iso: string): string {
@@ -91,7 +93,7 @@ export function Chat() {
     setError(null)
     try {
       const msgs = await fetchConversationMessages(conv.id)
-      setActiveChat({ kind: 'saved', id: conv.id, title: conv.title, messages: msgs })
+      setActiveChat({ kind: 'saved', id: conv.id, title: conv.title, messages: msgs, evening: conv.kind === 'soir' })
     } catch (err) {
       setError((err as Error).message)
     }
@@ -119,6 +121,31 @@ export function Chat() {
       setActiveChat({ kind: 'saved', id, title: 'Nouvelle conversation', messages: [] })
     } catch (err) {
       setError((err as Error).message)
+    }
+  }
+
+  async function startEveningChat() {
+    setError(null)
+    try {
+      const { id, title } = await openEveningChat()
+      const msgs = await fetchConversationMessages(id)
+      setActiveChat({ kind: 'saved', id, title, messages: msgs, evening: true })
+    } catch (err) {
+      setError((err as Error).message)
+    }
+  }
+
+  async function handleFinishEvening() {
+    if (activeChat.kind !== 'saved' || loading) return
+    setLoading(true)
+    setError(null)
+    try {
+      const recap = await finishEveningChat(activeChat.id)
+      setActiveChat((prev) => ({ ...prev, messages: [...prev.messages, { role: 'assistant', content: recap }] }) as ActiveChat)
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -199,9 +226,14 @@ export function Chat() {
         <span className="chat-topbar-title">
           {activeChat.kind === 'saved' ? activeChat.title : 'Discussion temporaire'}
         </span>
-        <button className="icon-button" onClick={() => setShowNewChatPicker(true)} aria-label="Nouvelle conversation">
-          <PlusIcon size={16} />
-        </button>
+        <div className="chat-topbar-actions">
+          <button className="icon-button" onClick={startEveningChat} aria-label="Chat du soir">
+            <MoonIcon size={16} />
+          </button>
+          <button className="icon-button" onClick={() => setShowNewChatPicker(true)} aria-label="Nouvelle conversation">
+            <PlusIcon size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="chat-messages" ref={messagesRef}>
@@ -227,6 +259,11 @@ export function Chat() {
         )}
       </div>
       {error && <div className="error">{error}</div>}
+      {activeChat.kind === 'saved' && activeChat.evening && messages.some((m) => m.role === 'user') && (
+        <button className="text-button chat-finish-evening" onClick={handleFinishEvening} disabled={loading}>
+          📓 Terminer et enregistrer mon journal
+        </button>
+      )}
       {(attachedImage || analyzingImage) && (
         <div className="chat-attachment-preview">
           {attachedImage ? (
