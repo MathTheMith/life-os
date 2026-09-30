@@ -1906,3 +1906,40 @@ a.watch-item-title:hover {
   font-size: 0.76rem;
   color: var(--text-muted);
 }
+
+.reminder-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reminder-chip {
+  padding: 6px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.reminder-chip--on {
+  border-color: rgba(255, 122, 69, 0.5);
+  background: rgba(255, 122, 69, 0.14);
+  color: var(--text-primary);
+}
+
+.notif-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  padding: 0 4px;
+}
+
+.notif-bar-message {
+  width: 100%;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}

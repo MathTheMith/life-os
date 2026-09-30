@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { fetchAgenda, addAgendaEvent, deleteAgendaEvent, type AgendaEvent } from '../api'
+import { fetchAgenda, addAgendaEvent, deleteAgendaEvent, fetchPushKey, savePushSubscription, sendTestPush, type AgendaEvent } from '../api'
 import { PlusIcon, TrashIcon } from '../icons'
 import { TodoPage } from './Todo'
 
@@ -8,6 +8,25 @@ const SOURCE_LABEL: Record<AgendaEvent['source'], string | null> = {
   chat: 'ajouté par l’IA',
   journal: 'depuis ton chat du soir',
   mail: 'depuis un mail',
+}
+
+const REMINDER_CHOICES: { min: number; label: string }[] = [
+  { min: 10080, label: '1 sem' },
+  { min: 4320, label: '3 j' },
+  { min: 1440, label: '1 j' },
+  { min: 720, label: '12 h' },
+  { min: 180, label: '3 h' },
+  { min: 60, label: '1 h' },
+  { min: 15, label: '15 min' },
+]
+
+function reminderLabel(min: number, allDay: boolean): string {
+  if (min === 0) return allDay ? 'le matin' : "à l'heure"
+  const known = REMINDER_CHOICES.find((c) => c.min === min)
+  if (known) return known.label
+  if (min % 1440 === 0) return `${min / 1440} j`
+  if (min % 60 === 0) return `${min / 60} h`
+  return `${min} min`
 }
 
 const DAY_FORMAT = new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })
@@ -28,6 +47,7 @@ function dayLabel(date: string, today: string): string {
 export function PlanningPage() {
   return (
     <div className="planning-page">
+      <NotificationsCard />
       <AgendaCard />
       <TodoPage />
     </div>
@@ -93,6 +113,9 @@ function AgendaCard() {
               <div className="agenda-event-main">
                 <span className="agenda-event-title">{e.title}</span>
                 {e.notes && <span className="agenda-event-notes">{e.notes}</span>}
+                {e.reminders.length > 0 && (
+                  <span className="agenda-event-source">🔔 {e.reminders.map((m) => reminderLabel(m, e.all_day === 1)).join(' · ')}</span>
+                )}
                 {SOURCE_LABEL[e.source] && <span className="agenda-event-source">{SOURCE_LABEL[e.source]}</span>}
               </div>
               <button
@@ -114,7 +137,7 @@ function AddEventForm({ defaultDate, onAdded }: { defaultDate: string; onAdded: 
   const [title, setTitle] = useState('')
   const [date, setDate] = useState(defaultDate)
   const [time, setTime] = useState('')
-  const [remind, setRemind] = useState('60')
+  const [reminders, setReminders] = useState<number[]>([1440, 60])
   const [error, setError] = useState<string | null>(null)
 
   async function handleSubmit(e: React.FormEvent) {
@@ -125,7 +148,7 @@ function AddEventForm({ defaultDate, onAdded }: { defaultDate: string; onAdded: 
       await addAgendaEvent({
         title: title.trim(),
         start: time ? `${date}T${time}` : date,
-        remind_before_min: remind === 'none' ? null : Number(remind),
+        reminders_min: reminders,
       })
       onAdded()
     } catch (err) {
@@ -149,22 +172,107 @@ function AddEventForm({ defaultDate, onAdded }: { defaultDate: string; onAdded: 
           <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
         </label>
       </div>
-      {time && (
-        <label className="field">
-          <span>Rappel</span>
-          <select value={remind} onChange={(e) => setRemind(e.target.value)}>
-            <option value="15">15 min avant</option>
-            <option value="60">1 h avant</option>
-            <option value="180">3 h avant</option>
-            <option value="1440">La veille</option>
-            <option value="none">Pas de rappel</option>
-          </select>
-        </label>
-      )}
+      <div className="field">
+        <span>Rappels (notifications)</span>
+        <div className="reminder-chips">
+          {REMINDER_CHOICES.map((c) => (
+            <button
+              type="button"
+              key={c.min}
+              className={reminders.includes(c.min) ? 'reminder-chip reminder-chip--on' : 'reminder-chip'}
+              onClick={() => setReminders((prev) => (prev.includes(c.min) ? prev.filter((m) => m !== c.min) : [...prev, c.min]))}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </div>
       {error && <div className="error">{error}</div>}
       <button type="submit" className="primary-button">
         Ajouter
       </button>
     </form>
+  )
+}
+
+function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
+  const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/')
+  const raw = atob(padded)
+  const bytes = new Uint8Array(new ArrayBuffer(raw.length))
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i)
+  return bytes
+}
+
+// Push notifications on this device: enable once, then a test button.
+function NotificationsCard() {
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!supported) return
+    navigator.serviceWorker.ready
+      .then((reg) => reg.pushManager.getSubscription())
+      .then((sub) => setEnabled(Boolean(sub) && Notification.permission === 'granted'))
+      .catch(() => setEnabled(false))
+  }, [supported])
+
+  async function enable() {
+    setBusy(true)
+    setMessage(null)
+    try {
+      const permission = await Notification.requestPermission()
+      if (permission !== 'granted') {
+        setMessage("Notifications refusées. Autorise-les dans les réglages du navigateur pour ce site, puis réessaie.")
+        return
+      }
+      const reg = await navigator.serviceWorker.ready
+      const { publicKey } = await fetchPushKey()
+      const sub =
+        (await reg.pushManager.getSubscription()) ??
+        (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) }))
+      await savePushSubscription(sub.toJSON())
+      setEnabled(true)
+      setMessage('Activées sur ce téléphone.')
+    } catch (err) {
+      setMessage((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function test() {
+    setBusy(true)
+    try {
+      const { delivered } = await sendTestPush()
+      setMessage(delivered ? 'Notification envoyée, regarde ton téléphone.' : "Aucun appareil abonné, réactive les notifications.")
+    } catch (err) {
+      setMessage((err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (!supported || enabled === null) return null
+  if (enabled) {
+    return (
+      <div className="notif-bar">
+        <span>🔔 Notifications activées</span>
+        <button className="text-button" onClick={test} disabled={busy}>
+          Tester
+        </button>
+        {message && <span className="notif-bar-message">{message}</span>}
+      </div>
+    )
+  }
+  return (
+    <div className="glass-card">
+      <p className="watch-meta">Active les notifications pour recevoir tes rappels d'agenda sur ce téléphone.</p>
+      <button className="primary-button" onClick={enable} disabled={busy}>
+        🔔 Activer les notifications
+      </button>
+      {message && <div className="error">{message}</div>}
+    </div>
   )
 }

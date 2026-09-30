@@ -26,6 +26,9 @@ const TABS: { id: Tab; label: string; icon: ComponentType<{ size?: number }> }[]
 const TAB_STORAGE_KEY = 'life-os-active-tab'
 
 function loadInitialTab(): Tab {
+  // Notifications open the app on a given tab with ?tab=...
+  const fromUrl = new URLSearchParams(window.location.search).get('tab')
+  if (TABS.some((t) => t.id === fromUrl)) return fromUrl as Tab
   const stored = localStorage.getItem(TAB_STORAGE_KEY)
   return TABS.some((t) => t.id === stored) ? (stored as Tab) : 'budget'
 }

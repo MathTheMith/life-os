@@ -575,13 +575,14 @@ export interface AgendaEvent {
   end_at: string | null
   all_day: number
   notes: string | null
-  remind_before_min: number | null
   source: 'user' | 'chat' | 'journal' | 'mail'
+  // Reminder offsets in minutes before the start.
+  reminders: number[]
 }
 
 export const fetchAgenda = async () => json<AgendaEvent[]>(await fetch('/api/agenda'), 'Erreur chargement agenda')
 
-export const addAgendaEvent = async (event: { title: string; start: string; notes?: string; remind_before_min?: number | null }) =>
+export const addAgendaEvent = async (event: { title: string; start: string; notes?: string; reminders_min?: number[] }) =>
   json<AgendaEvent>(await fetch('/api/agenda', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(event) }), "Erreur d'ajout")
 
 export const deleteAgendaEvent = async (id: number) =>
@@ -610,3 +611,11 @@ export const fetchMailStatus = async () =>
   )
 
 export const runMailNow = async () => json(await fetch('/api/mail/run', { method: 'POST' }), 'Erreur de lancement')
+
+export const fetchPushKey = async () => json<{ publicKey: string }>(await fetch('/api/push/key'), 'Erreur')
+
+export const savePushSubscription = async (subscription: PushSubscriptionJSON) =>
+  json(await fetch('/api/push/subscribe', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(subscription) }), "Erreur d'abonnement")
+
+export const sendTestPush = async () =>
+  json<{ delivered: number }>(await fetch('/api/push/test', { method: 'POST' }), "Erreur d'envoi")

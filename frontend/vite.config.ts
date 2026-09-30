@@ -15,6 +15,8 @@ export default defineConfig({
         // this denylist the service worker's SPA fallback intercepts them
         // like any other route change.
         navigateFallbackDenylist: [/^\/api\//, /^\/dl\//],
+        // Push notification handlers (public/push-sw.js).
+        importScripts: ['push-sw.js'],
       },
       manifest: {
         name: 'Life OS',

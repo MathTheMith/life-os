@@ -181,7 +181,12 @@ const AGENDA_TOOLS = [
           start: { type: "string", description: "AAAA-MM-JJTHH:MM (heure de Paris), ou AAAA-MM-JJ pour une journée entière." },
           end: { type: "string", description: "Fin, même format (optionnel)." },
           notes: { type: "string", description: "Détails utiles (optionnel)." },
-          remind_before_min: { type: "number", description: "Minutes avant le début pour le rappel (défaut 60)." },
+          reminders_min: {
+            type: "array",
+            items: { type: "number" },
+            description:
+              "Rappels en minutes avant le début. Choisis selon l'importance : entretien, examen, échéance importante → [10080, 4320, 1440, 720, 60] ; rendez-vous ou course → [1440, 120] ; petite tâche → [60]. Défaut [1440, 60].",
+          },
         },
         required: ["title", "start"],
       },
@@ -200,7 +205,7 @@ const AGENDA_TOOLS = [
           start: { type: "string" },
           end: { type: "string" },
           notes: { type: "string" },
-          remind_before_min: { type: "number" },
+          reminders_min: { type: "array", items: { type: "number" }, description: "Rappels en minutes avant le début." },
         },
         required: ["id", "title", "start"],
       },

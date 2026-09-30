@@ -116,7 +116,8 @@ chatRouter.post("/", async (req, res) => {
   systemPrompt +=
     `\n\nNous sommes le ${now} (heure de Paris). ` +
     "Tu tiens son agenda : dès qu'il mentionne un rendez-vous, une échéance, une course ou te demande un rappel, ajoute-le directement avec add_agenda_event (sans demander), puis dis-lui ce que tu as ajouté. " +
-    "Pour un rappel « dans X jours », calcule la date à partir d'aujourd'hui.";
+    "Pour un rappel « dans X jours », calcule la date à partir d'aujourd'hui. " +
+    "Chaque événement a des rappels (notifications sur son téléphone) : choisis-les selon l'importance, et s'il demande des rappels précis, respecte-les.";
 
   const profile = getProfileForPrompt();
   if (profile) systemPrompt += `\n\n## Profil de Mathéo (écrit par lui, la référence pour tout conseil)\n${profile}`;

@@ -153,11 +153,12 @@ async function triageBatch(mails: PendingMail[]) {
     '{"mails": [{"i": 0, "importance": 0-100, "categorie": "' +
     MAIL_CATEGORIES.join('" | "') +
     '", "resume": "une phrase", "action": "ce qu\'il doit faire, ou null", ' +
-    '"evenement": {"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ", "rappel_min": 60} ou null}]}\n\n' +
+    '"evenement": {"titre": "...", "debut": "AAAA-MM-JJTHH:MM ou AAAA-MM-JJ", "rappels_min": [1440, 60]} ou null}]}\n\n' +
     "- importance : pour LUI, d'après son profil. Réponse d'une entreprise où il a candidaté, entretien, recruteur : 85 à 100. " +
     "Administratif avec échéance, école, argent : 60 à 85. Perso : selon le contenu. Pub, newsletter, notification automatique : moins de 15.\n" +
     "- categorie : candidature = réponse à une de ses candidatures ; recrutement = autre contact ou offre d'emploi/stage.\n" +
-    "- evenement : seulement si le mail fixe une date précise qui le concerne (entretien, rendez-vous, échéance, course, livraison importante). Heure de Paris.\n" +
+    "- evenement : seulement si le mail fixe une date précise qui le concerne (entretien, rendez-vous, échéance, course, livraison importante). Heure de Paris. " +
+    "rappels_min en minutes avant : entretien ou échéance importante [10080, 4320, 1440, 720, 60], rendez-vous [1440, 120].\n" +
     "- resume et action : concrets, en français, pas de tirets cadratins.\n\n" +
     `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n## Mails\n${list}`;
 
@@ -180,7 +181,7 @@ async function triageBatch(mails: PendingMail[]) {
         addEvent({
           title: String(r.evenement.titre),
           start: String(r.evenement.debut),
-          remind_before_min: Number.isFinite(Number(r.evenement.rappel_min)) ? Number(r.evenement.rappel_min) : undefined,
+          reminders_min: Array.isArray(r.evenement.rappels_min) ? r.evenement.rappels_min : undefined,
           notes: `Depuis le mail « ${mail.subject ?? ""} » de ${mail.from_name || mail.from_addr}`,
           source: "mail",
         });

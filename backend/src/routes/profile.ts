@@ -1,7 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { callAiService } from "../aiClient.js";
-import { getGlobalMemory, getAssistantNotes } from "../chatTools.js";
 import { listGoalsWithStats } from "./goals.js";
 
 // The user's profile: who they are, what they dream of, what the AI should
@@ -91,12 +90,18 @@ profileRouter.put("/:key", (req, res) => {
   }
 });
 
+// Read straight from the tables rather than through chatTools.ts, which
+// imports this module (a cycle would break depending on load order).
+function readSingleton(table: "assistant_memory" | "assistant_notes"): string {
+  return (db.prepare(`SELECT content FROM ${table} WHERE id = 1`).get() as { content: string } | undefined)?.content ?? "";
+}
+
 // Drafts the sections from what Life OS already knows (memory, notes,
 // goals). Returns the drafts without saving: the user reviews them first.
 profileRouter.post("/draft", async (_req, res) => {
   const sources = [
-    `## Mémoire globale\n${getGlobalMemory() || "(vide)"}`,
-    `## Notes de l'assistant\n${getAssistantNotes() || "(vide)"}`,
+    `## Mémoire globale\n${readSingleton("assistant_memory") || "(vide)"}`,
+    `## Notes de l'assistant\n${readSingleton("assistant_notes") || "(vide)"}`,
     `## Objectifs suivis dans l'app\n${JSON.stringify(
       listGoalsWithStats().map((g: any) => ({ titre: g.title, type: g.kind, date: g.target_date }))
     )}`,

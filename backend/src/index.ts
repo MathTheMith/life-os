@@ -16,6 +16,8 @@ import { startWatchScheduler } from "./watch.js";
 import { agendaRouter } from "./routes/agenda.js";
 import { mailRouter } from "./routes/mail.js";
 import { startMailScheduler } from "./mail.js";
+import { pushRouter } from "./push.js";
+import { startReminderScheduler } from "./reminders.js";
 import { uploadsDir } from "./db.js";
 import { authRouter, requireAuth } from "./auth.js";
 
@@ -49,9 +51,11 @@ app.use("/api/journal", journalRouter);
 app.use("/api/watch", watchRouter);
 app.use("/api/agenda", agendaRouter);
 app.use("/api/mail", mailRouter);
+app.use("/api/push", pushRouter);
 
 app.listen(port, () => {
   console.log(`life-os backend listening on http://localhost:${port}`);
   startWatchScheduler();
   startMailScheduler();
+  startReminderScheduler();
 });
