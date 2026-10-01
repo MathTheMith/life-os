@@ -11,6 +11,7 @@ import { generateMorningActions, getActionsForPrompt } from "./actions.js";
 import { toneInstructions, adjustCoach } from "./coach.js";
 import { listEnvelopesWithSummary } from "./routes/envelope.js";
 import { getBudgetSummary } from "./routes/budget.js";
+import { deleteConversationById } from "./routes/conversations.js";
 
 // The daily rhythm: the morning brief at 9:00, and the evening chat
 // reminder at 21:30 when the day's journal isn't written yet. Both are
@@ -151,7 +152,19 @@ export async function runBrief(date = parisNow().date, notify = true) {
      question = excluded.question, commitments = excluded.commitments, created_at = datetime('now')`
   ).run(date, JSON.stringify(brief.notification), brief.content, brief.question, JSON.stringify(brief.commitments));
   if (notify) await sendPush({ ...brief.notification, url: "/?tab=today", tag: "brief" });
+  pruneStaleQuestionChats(date);
   return brief;
+}
+
+// A new day's question just landed, so any "Question du jour" chat from
+// before today is done for — whatever mattered in it was already forced
+// into the profile/notes during the conversation itself (see chat.ts's
+// 'question' mode), so the raw transcript has nothing left to lose.
+function pruneStaleQuestionChats(currentDate: string) {
+  const stale = db
+    .prepare("SELECT id FROM conversations WHERE kind = 'question' AND question_date IS NOT NULL AND question_date != ?")
+    .all(currentDate) as { id: number }[];
+  for (const { id } of stale) deleteConversationById(id);
 }
 
 function eveningJournalDone(date: string): boolean {

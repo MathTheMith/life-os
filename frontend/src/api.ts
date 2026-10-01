@@ -71,6 +71,18 @@ export async function createConversation(opts: { title?: string; assistantMessag
   return res.json()
 }
 
+// Opens today's "Question du jour" chat — the same one every time, for as
+// long as it's still today's question (see conversations.ts POST /question).
+export async function openQuestionConversation(question: string): Promise<{ id: number; title: string }> {
+  const res = await fetch('/api/conversations/question', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  })
+  if (!res.ok) throw new Error('Erreur ouverture de la question du jour')
+  return res.json()
+}
+
 export async function fetchConversationMessages(id: number): Promise<ChatMessage[]> {
   const res = await fetch(`/api/conversations/${id}/messages`)
   if (!res.ok) throw new Error('Erreur chargement messages')

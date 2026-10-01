@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import {
   fetchTodayBrief,
   regenerateBrief,
-  createConversation,
+  openQuestionConversation,
   fetchBudgetSummary,
   fetchEnvelopes,
   fetchGoals,
@@ -146,7 +146,7 @@ function QuestionCard({ question, onAnswer }: { question: string; onAnswer: (con
   async function answer() {
     setBusy(true)
     try {
-      const { id } = await createConversation({ title: 'Question du jour', assistantMessage: question })
+      const { id } = await openQuestionConversation(question)
       onAnswer(id)
     } finally {
       setBusy(false)
