@@ -8,7 +8,7 @@ import { getProfileForPrompt } from "./profile.js";
 import { getJournalForPrompt, getEveningInstructions } from "./journal.js";
 import { getWatchForPrompt } from "../watch.js";
 import { getAgendaForPrompt } from "./agenda.js";
-import { getMailForPrompt } from "../mail.js";
+import { getMailForPrompt, getSentMailForPrompt } from "../mail.js";
 import { getTodayBriefForPrompt } from "../brief.js";
 import { getActionsForPrompt } from "../actions.js";
 import { toneInstructions } from "../coach.js";
@@ -32,6 +32,35 @@ const IMAGE_MARKER = "\n\n[Description détaillée de l'image jointe]\n";
 // images themselves never travel past imageDescribe.ts (see there for why).
 function withImageDescription(content: string, description?: string | null): string {
   return description ? `${content}${IMAGE_MARKER}${description}` : content;
+}
+
+// A second, independent Gemini call that relits the draft reply before it
+// reaches Mathéo — catches an obviously invented number/date/name or an
+// internal contradiction. Same model as the one that wrote it, so this is
+// a partial safety net, not a real second opinion: it can share the same
+// blind spots. Told to be conservative (don't touch what isn't actually
+// wrong) so it doesn't turn into noisy cosmetic rewrites. Only called when
+// the turn used a web tool (see below) — that's where an invented or
+// misread detail is both most likely and hardest to catch unaided, and it
+// keeps this from doubling the cost/latency of every single message.
+// Fails open — any error here just keeps the original draft.
+async function critiqueReply(userMessage: string, draftReply: string): Promise<string> {
+  const prompt =
+    "Tu relis une réponse qu'une IA s'apprête à envoyer à Mathéo, avant qu'il la voie — un dernier filet de sécurité. " +
+    "Vérifie uniquement : une affirmation inventée, un chiffre/date/nom qui semble sorti de nulle part, ou une contradiction interne. " +
+    "Ne touche à RIEN d'autre — pas de reformulation cosmétique, pas de changement de ton, même si tu l'aurais écrite différemment. " +
+    "Si tout va bien (y compris si elle dit honnêtement ne pas savoir), réponds exactement OK, rien d'autre. " +
+    "Si tu trouves un vrai problème, réponds uniquement par la version corrigée, dans la même langue et le même ton, sans aucun commentaire autour.\n\n" +
+    `Message de Mathéo :\n${userMessage}\n\nRéponse à relire :\n${draftReply}`;
+  try {
+    const data = await callAiService({ messages: [{ role: "user", content: prompt }], reasoning_effort: "low" });
+    const result = (data.choices?.[0]?.message?.content ?? "").trim();
+    if (!result || result.toUpperCase() === "OK") return draftReply;
+    return result;
+  } catch (err) {
+    console.error("Relecture critique échouée, réponse originale conservée:", (err as Error).message);
+    return draftReply;
+  }
 }
 
 // The one dedicated endpoint that ever sends raw image bytes anywhere. The
@@ -137,19 +166,38 @@ chatRouter.post("/", async (req, res) => {
   if (agenda) systemPrompt += `\n\n## Agenda des 3 prochaines semaines\n${agenda}`;
   const mails = getMailForPrompt();
   if (mails) systemPrompt += `\n\n## Mails importants des 3 derniers jours\n${mails}`;
+  const sentMails = getSentMailForPrompt();
+  if (sentMails) systemPrompt += `\n\n## Mails que Mathéo a lui-même envoyés dans les 30 derniers jours\n${sentMails}`;
   const brief = getTodayBriefForPrompt();
   if (brief) systemPrompt += `\n\n## Le brief que tu lui as envoyé ce matin\n${brief}`;
   const actions = getActionsForPrompt();
-  if (actions) systemPrompt += `\n\n## Actions que tu lui as préparées (il les valide dans l'onglet Planning)\n${actions}`;
+  if (actions) systemPrompt += `\n\n## Actions que tu lui as préparées (il les valide dans l'onglet Aujourd'hui)\n${actions}`;
   const watch = getWatchForPrompt();
   if (watch) systemPrompt += `\n\n## Veille : trouvailles pertinentes des 7 derniers jours (score sur 100)\n${watch}`;
   if (conversation?.kind === "soir") systemPrompt += `\n\n${getEveningInstructions()}`;
+  // The general "save his answer when he replies to a question you asked"
+  // rule further up is already supposed to cover this, but it's buried in
+  // a long prompt and relying on the model to apply it unprompted every
+  // single time isn't good enough for a feature whose entire point is
+  // learning something durable — so a 'question' conversation repeats it
+  // here, unambiguous and right where it matters.
+  if (conversation?.kind === "question") {
+    systemPrompt +=
+      "\n\n## Mode : question du jour\n" +
+      "Cette conversation existe UNIQUEMENT parce que tu as posé à Mathéo une question pour mieux le connaître (c'est le premier message, déjà envoyé). " +
+      "Dès qu'il répond, c'est ta priorité absolue : enregistre sa réponse immédiatement, avant toute autre chose — avec update_profile_section si ça rentre dans une section du profil, sinon avec update_assistant_notes. " +
+      "Les deux sans demander la permission : c'est tout l'intérêt de cette conversation, une réponse non enregistrée ici est une question posée pour rien. " +
+      "Sa réponse est souvent tapée vite, floue ou mal formulée : ne la recopie jamais telle quelle. Reformule-la en une version claire, précise et bien écrite qui garde exactement son sens, " +
+      "comme tu l'écrirais toi-même si on te demandait son avis sur le sujet. Si elle est vraiment trop ambiguë pour être reformulée sans trahir ce qu'il voulait dire, repose une question de clarification avant d'enregistrer plutôt que de deviner. " +
+      "Dis-lui ensuite en une ligne ce que tu as retenu (ta reformulation, pas sa phrase d'origine) avant de continuer la discussion si elle continue.";
+  }
 
   const tools = toolDefinitions(!!conversationId);
   const workingMessages: any[] = [{ role: "system", content: systemPrompt }, ...history];
 
   try {
     let finalText = "";
+    let usedWebTool = false;
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const data = await callAiService({ messages: workingMessages, tools });
       const assistantMessage = data.choices?.[0]?.message;
@@ -158,8 +206,9 @@ chatRouter.post("/", async (req, res) => {
       if (assistantMessage.tool_calls?.length) {
         workingMessages.push(assistantMessage);
         for (const call of assistantMessage.tool_calls) {
+          if (call.function.name === "search_web" || call.function.name === "read_web_page") usedWebTool = true;
           const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
-          const result = executeTool(call.function.name, args, conversationId ?? null);
+          const result = await executeTool(call.function.name, args, conversationId ?? null);
           workingMessages.push({ role: "tool", tool_call_id: call.id, content: result });
         }
         continue;
@@ -170,6 +219,11 @@ chatRouter.post("/", async (req, res) => {
     }
 
     if (!finalText) finalText = "Désolé, je n'ai pas réussi à formuler de réponse.";
+    // Reserved for replies built from live internet research — exactly the
+    // case most worth a second check (an invented or misread detail from a
+    // page is easy, and hard to catch without rereading), and the one most
+    // sessions won't hit, so this doesn't double the cost of every message.
+    if (usedWebTool) finalText = await critiqueReply(userMessage || "(message avec image, sans texte)", finalText);
 
     if (conversationId && conversation) {
       const conv = conversation;

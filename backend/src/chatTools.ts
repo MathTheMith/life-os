@@ -8,7 +8,8 @@ import { listGoalsWithStats } from "./routes/goals.js";
 import { PROFILE_SECTIONS, setProfileSection } from "./routes/profile.js";
 import { listJournal } from "./routes/journal.js";
 import { addEvent, updateEvent, deleteEvent, listAgenda } from "./routes/agenda.js";
-import { listMails } from "./mail.js";
+import { listMails, getMailText } from "./mail.js";
+import { fetchPageText, searchWeb } from "./web.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -224,13 +225,61 @@ const AGENDA_TOOLS = [
     function: {
       name: "get_mails",
       description:
-        "Mails reçus par Mathéo, déjà triés par l'IA (importance, catégorie, résumé, action). Les importants des 3 derniers jours sont déjà dans le contexte.",
+        "Mails de Mathéo. Par défaut les mails REÇUS, déjà triés par l'IA (importance, catégorie, résumé, action) — les importants des 3 derniers jours sont déjà dans le contexte. " +
+        "Passe direction=\"sent\" pour les mails qu'IL a lui-même ENVOYÉS (candidatures, relances...) — pas de tri IA sur ceux-là, juste date/destinataire/objet.",
       parameters: {
         type: "object",
         properties: {
           days: { type: "number", description: "Nombre de jours à remonter (défaut 14)." },
-          min_importance: { type: "number", description: "Importance minimale sur 100 (défaut 0)." },
+          min_importance: { type: "number", description: "Importance minimale sur 100 (défaut 0, ignoré pour les mails envoyés)." },
+          direction: { type: "string", enum: ["received", "sent"], description: "Défaut \"received\"." },
         },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_mail_text",
+      description:
+        "Le texte réel d'un mail précis (jusqu'à 4000 caractères), par son id donné par get_mails. " +
+        "get_mails ne renvoie que le résumé en une phrase généré au tri — utilise get_mail_text dès que Mathéo demande de lire, détailler ou citer un mail précis.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "number", description: "id du mail (champ \"id\" renvoyé par get_mails)." },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_web",
+      description:
+        "Recherche sur internet (vraie recherche, pas besoin d'avoir déjà un lien). Renvoie jusqu'à 6 résultats (titre, url, extrait). " +
+        "Utilise read_web_page ensuite pour lire le contenu complet d'un résultat qui t'intéresse.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Les termes de recherche." },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_web_page",
+      description: "Lit le contenu texte d'une page web à partir de son url (un lien dans un mail, un résultat de search_web...).",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "L'url complète de la page (http:// ou https://)." },
+        },
+        required: ["url"],
       },
     },
   },
@@ -318,13 +367,17 @@ function getMotorsportPlan(): string {
   return motorsportPlanCache;
 }
 
-export function executeTool(
+export async function executeTool(
   name: string,
   args: Record<string, unknown>,
   conversationId: number | null
-): string {
+): Promise<string> {
   try {
     switch (name) {
+      case "search_web":
+        return JSON.stringify(await searchWeb(String(args.query ?? "")));
+      case "read_web_page":
+        return JSON.stringify(await fetchPageText(String(args.url ?? "")));
       case "get_budget_summary":
         return JSON.stringify(getBudgetSummary((args.month as string) || new Date().toISOString().slice(0, 7)));
       case "get_transactions":
@@ -353,7 +406,17 @@ export function executeTool(
         deleteEvent(Number(args.id));
         return JSON.stringify({ ok: true });
       case "get_mails":
-        return JSON.stringify(listMails(Number(args.days) > 0 ? Number(args.days) : 14, Number(args.min_importance) || 0));
+        return JSON.stringify(
+          listMails(
+            Number(args.days) > 0 ? Number(args.days) : 14,
+            Number(args.min_importance) || 0,
+            args.direction === "sent" ? "sent" : "received"
+          )
+        );
+      case "get_mail_text": {
+        const mail = getMailText(Number(args.id));
+        return JSON.stringify(mail ?? { error: "Mail introuvable." });
+      }
       case "get_journal":
         return JSON.stringify(listJournal(Number(args.days) > 0 ? Number(args.days) : 30));
       case "get_motorsport_plan":

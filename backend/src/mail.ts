@@ -49,9 +49,29 @@ if (!(db.prepare("PRAGMA table_info(mail_messages)").all() as { name: string }[]
   db.exec("UPDATE mail_messages SET notified = 1");
 }
 
+// direction/to_*: the Sent folder, read the same way as the inbox, so the
+// AI knows what Mathéo actually sent (e.g. an application answered straight
+// from Gmail on his phone) instead of only relying on him marking a drafted
+// action "Envoyé" by hand. Sent mails skip triage entirely — no
+// importance/category, nothing to decide, see runMail().
+const mailColumns = (db.prepare("PRAGMA table_info(mail_messages)").all() as { name: string }[]).map((c) => c.name);
+if (!mailColumns.includes("direction")) {
+  db.exec("ALTER TABLE mail_messages ADD COLUMN direction TEXT NOT NULL DEFAULT 'received'");
+}
+if (!mailColumns.includes("to_name")) db.exec("ALTER TABLE mail_messages ADD COLUMN to_name TEXT");
+if (!mailColumns.includes("to_addr")) db.exec("ALTER TABLE mail_messages ADD COLUMN to_addr TEXT");
+
 const FIRST_RUN_DAYS = 7;
+// Longer backfill for Sent on its very first run: an application or
+// relance sent three weeks ago is still exactly the kind of thing the AI
+// should know about, unlike the inbox where 7 days of recent mail is enough.
+const SENT_FIRST_RUN_DAYS = 30;
 const MAX_PER_RUN = 60;
-const SNIPPET_CHARS = 1000;
+// Only ever used for the auto-triage prompt until get_mail_text (chatTools.ts)
+// started exposing it on request — raised from 1000 so asking the AI to
+// actually read a mail doesn't hit the same wall nearly as often. Storage
+// cost is negligible at this mailbox's scale.
+const SNIPPET_CHARS = 4000;
 const BATCH_SIZE = 10;
 export const MAIL_CATEGORIES = ["recrutement", "candidature", "administratif", "banque", "perso", "achat", "pub", "autre"] as const;
 
@@ -80,7 +100,34 @@ function isExcluded(fromAddr: string): boolean {
   return fragments.some((f) => fromAddr.toLowerCase().includes(f));
 }
 
-async function fetchNewMessages(account: Account): Promise<number> {
+// Gmail's Sent folder has a different literal name per account language
+// ("[Gmail]/Sent Mail", "[Gmail]/Messages envoyés"...) — IMAP's SPECIAL-USE
+// extension (which Gmail supports) is the only locale-proof way to find it.
+// Cached per account so a normal run doesn't open a connection just to ask.
+async function resolveSentFolder(account: Account): Promise<string | null> {
+  const cacheKey = `mail_sent_folder:${account.user}`;
+  const cached = getState(cacheKey);
+  if (cached) return cached;
+
+  const client = new ImapFlow({
+    host: "imap.gmail.com",
+    port: 993,
+    secure: true,
+    auth: { user: account.user, pass: account.pass },
+    logger: false,
+  });
+  await client.connect();
+  try {
+    const list = await client.list();
+    const path = list.find((m) => m.specialUse === "\\Sent")?.path ?? null;
+    if (path) setState(cacheKey, path);
+    return path;
+  } finally {
+    await client.logout().catch(() => {});
+  }
+}
+
+async function fetchNewMessages(account: Account, folder: string, direction: "received" | "sent"): Promise<number> {
   const client = new ImapFlow({
     host: "imap.gmail.com",
     port: 993,
@@ -91,24 +138,27 @@ async function fetchNewMessages(account: Account): Promise<number> {
   await client.connect();
   let saved = 0;
   try {
-    const lock = await client.getMailboxLock("INBOX", { readOnly: true });
+    const lock = await client.getMailboxLock(folder, { readOnly: true });
     try {
       const mailbox = client.mailbox;
       const uidValidity = mailbox ? String(mailbox.uidValidity) : "";
-      const cursorKey = `mail_cursor:${account.user}`;
+      const cursorKey = `mail_cursor:${account.user}:${direction}`;
       const cursor = JSON.parse(getState(cursorKey) ?? "null") as { uidValidity: string; lastUid: number } | null;
       const lastUid = cursor && cursor.uidValidity === uidValidity ? cursor.lastUid : 0;
 
       const found = await client.search(
-        lastUid ? { uid: `${lastUid + 1}:*` } : { since: new Date(Date.now() - FIRST_RUN_DAYS * 24 * 3600 * 1000) },
+        lastUid
+          ? { uid: `${lastUid + 1}:*` }
+          : { since: new Date(Date.now() - (direction === "sent" ? SENT_FIRST_RUN_DAYS : FIRST_RUN_DAYS) * 24 * 3600 * 1000) },
         { uid: true }
       );
       // "N:*" always matches the newest message even when it's below N.
       const uids = (found || []).filter((uid) => uid > lastUid).sort((a, b) => a - b).slice(-MAX_PER_RUN);
 
       const insert = db.prepare(
-        `INSERT OR IGNORE INTO mail_messages (account, uid, message_id, from_name, from_addr, subject, date, snippet, ai_status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT OR IGNORE INTO mail_messages
+           (account, uid, message_id, from_name, from_addr, to_name, to_addr, subject, date, snippet, ai_status, direction)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
       let maxUid = lastUid;
       if (uids.length) {
@@ -116,22 +166,51 @@ async function fetchNewMessages(account: Account): Promise<number> {
           maxUid = Math.max(maxUid, msg.uid);
           if (!msg.source) continue;
           const parsed = await simpleParser(msg.source);
-          const from = parsed.from?.value?.[0];
-          const fromAddr = from?.address ?? "";
-          const excluded = isExcluded(fromAddr);
           const text = (parsed.text ?? "").replace(/\s+/g, " ").trim();
-          const result = insert.run(
-            account.user,
-            msg.uid,
-            parsed.messageId ?? `${account.user}:${uidValidity}:${msg.uid}`,
-            from?.name ?? null,
-            fromAddr,
-            parsed.subject ?? "(sans objet)",
-            (parsed.date ?? new Date()).toISOString(),
-            excluded ? null : text.slice(0, SNIPPET_CHARS),
-            excluded ? "excluded" : "pending"
-          );
-          saved += result.changes;
+
+          if (direction === "received") {
+            const from = parsed.from?.value?.[0];
+            const fromAddr = from?.address ?? "";
+            const excluded = isExcluded(fromAddr);
+            const result = insert.run(
+              account.user,
+              msg.uid,
+              parsed.messageId ?? `${account.user}:${uidValidity}:${msg.uid}`,
+              from?.name ?? null,
+              fromAddr,
+              null,
+              null,
+              parsed.subject ?? "(sans objet)",
+              (parsed.date ?? new Date()).toISOString(),
+              excluded ? null : text.slice(0, SNIPPET_CHARS),
+              excluded ? "excluded" : "pending",
+              "received"
+            );
+            saved += result.changes;
+          } else {
+            // Sent mail is never excluded (he chose to send it himself) and
+            // skips triage: no importance/category to decide, so ai_status
+            // goes straight to "sent" and triagePending() never sees it.
+            // mailparser types `to` as possibly an array (several To:
+            // addresses can each be their own AddressObject), unlike `from`.
+            const toObj = Array.isArray(parsed.to) ? parsed.to[0] : parsed.to;
+            const to = toObj?.value?.[0];
+            const result = insert.run(
+              account.user,
+              msg.uid,
+              parsed.messageId ?? `${account.user}:${uidValidity}:${msg.uid}:sent`,
+              null,
+              null,
+              to?.name ?? null,
+              to?.address ?? null,
+              parsed.subject ?? "(sans objet)",
+              (parsed.date ?? new Date()).toISOString(),
+              text.slice(0, SNIPPET_CHARS),
+              "sent",
+              "sent"
+            );
+            saved += result.changes;
+          }
         }
       }
       setState(cursorKey, JSON.stringify({ uidValidity, lastUid: maxUid }));
@@ -160,18 +239,38 @@ function isUpcoming(start: string): boolean {
   return at.getTime() > Date.now();
 }
 
+// Grouped by sender instead of one line per rated mail — the same
+// newsletter or contact swiped the same way ten times doesn't need ten
+// near-identical lines, and the counts make the trend visible (8 jugés
+// important sur 9 reads very differently from 1 sur 9) instead of just
+// whatever the latest verdict happened to be. 100 raw ratings costs only a
+// few hundred tokens once grouped — nowhere near a real budget concern.
 function ratingExamples(): string {
   const rows = db
     .prepare(
-      "SELECT from_name, from_addr, subject, user_rating FROM mail_messages WHERE user_rating IS NOT NULL ORDER BY date DESC LIMIT 40"
+      "SELECT from_name, from_addr, subject, user_rating FROM mail_messages WHERE user_rating IS NOT NULL ORDER BY date DESC LIMIT 100"
     )
     .all() as { from_name: string | null; from_addr: string | null; subject: string | null; user_rating: string }[];
-  const fmt = (rating: string) =>
-    rows
-      .filter((r) => r.user_rating === rating)
-      .map((r) => `- ${r.from_name || ""} <${r.from_addr ?? ""}> : ${r.subject ?? ""}`)
-      .join("\n") || "(aucun)";
-  return `Ce qu'il juge important :\n${fmt("important")}\n\nCe qu'il juge sans intérêt :\n${fmt("not")}`;
+
+  const bySender = new Map<string, { label: string; subject: string; important: number; not: number }>();
+  for (const r of rows) {
+    const key = r.from_addr || r.from_name || "?";
+    const entry = bySender.get(key) ?? {
+      label: `${r.from_name || ""} <${r.from_addr ?? ""}>`,
+      subject: r.subject ?? "",
+      important: 0,
+      not: 0,
+    };
+    if (r.user_rating === "important") entry.important += 1;
+    else entry.not += 1;
+    bySender.set(key, entry);
+  }
+
+  const lines = [...bySender.values()]
+    .sort((a, b) => b.important + b.not - (a.important + a.not))
+    .map((e) => `- ${e.label} (ex : "${e.subject}") : ${e.important} jugé(s) important, ${e.not} jugé(s) sans intérêt`);
+
+  return lines.join("\n") || "(aucun jugement encore)";
 }
 
 // The performance log fills itself from the result mails (Park Events and
@@ -206,6 +305,9 @@ async function triageBatch(mails: PendingMail[]) {
     "Administratif avec échéance, école, argent : 60 à 85. Résultats de ses propres sessions de karting ou de simracing (chronos) : 45 à 55, utiles pour son suivi pilote. " +
     "Perso : selon le contenu. Pub, newsletter, notification automatique : moins de 15.\n" +
     "- categorie : candidature = réponse à une de ses candidatures ; recrutement = autre contact ou offre d'emploi/stage.\n" +
+    "- Mails Intra 42 de revue de code (« You will review/evaluate... ») : regarde le délai annoncé AVANT de noter. " +
+    "Si c'est imminent (« in 15 minutes », « dans X minutes », maintenant) → 90 à 100, il doit s'y préparer tout de suite. " +
+    "Si c'est juste l'annonce d'une revue prévue à une date/heure donnée, sans urgence immédiate (« from <date> <heure> for X minutes ») → moins de 15, pure info à archiver, pas à notifier.\n" +
     "- evenement : seulement si le mail fixe une date précise À VENIR qui le concerne (entretien, rendez-vous, échéance, course, livraison importante). Heure de Paris. " +
     "rappels_min en minutes avant : entretien ou échéance importante [10080, 4320, 1440, 720, 60], rendez-vous [1440, 120].\n" +
     "- resume et action : concrets, en français correct avec les accents, pas de tirets cadratins.\n\n" +
@@ -303,7 +405,9 @@ export async function runMail(): Promise<{ fetched: number }> {
   try {
     for (const account of mailAccounts()) {
       try {
-        fetched += await fetchNewMessages(account);
+        fetched += await fetchNewMessages(account, "INBOX", "received");
+        const sentFolder = await resolveSentFolder(account);
+        if (sentFolder) fetched += await fetchNewMessages(account, sentFolder, "sent");
         setState(`mail_error:${account.user}`, "");
       } catch (err) {
         const message = (err as Error).message || "Erreur inconnue";
@@ -372,24 +476,50 @@ export function startMailScheduler() {
   for (const account of mailAccounts()) void watchInbox(account);
 }
 
-export function listMails(days: number, minImportance = 0) {
+// direction defaults to "received": the swipe-triage UI and the get_mails
+// chat tool are both about deciding what to do with mail that came in, and
+// a sent mail has no importance/category to show there anyway.
+export function listMails(days: number, minImportance = 0, direction: "received" | "sent" | "all" = "received") {
+  const directionClause = direction === "all" ? "" : "AND direction = ?";
   return db
     .prepare(
-      `SELECT id, account, from_name, from_addr, subject, date, importance, category, summary, action, ai_status, user_rating
-       FROM mail_messages WHERE date >= datetime('now', ?) AND (importance IS NULL OR importance >= ?)
+      `SELECT id, account, from_name, from_addr, to_name, to_addr, subject, date, importance, category, summary, action, ai_status, user_rating, direction
+       FROM mail_messages WHERE date >= datetime('now', ?) AND (importance IS NULL OR importance >= ?) ${directionClause}
        ORDER BY date DESC`
     )
-    .all(`-${days} days`, minImportance);
+    .all(...(direction === "all" ? [`-${days} days`, minImportance] : [`-${days} days`, minImportance, direction]));
 }
 
-// For prompts: important mails of the last few days.
+// The actual text of one mail, by the id get_mails already gave the model —
+// listMails() above deliberately leaves this out (it can return many rows,
+// and most questions only need the one-line summary), so reading a specific
+// mail for real goes through this instead.
+export function getMailText(id: number) {
+  return db
+    .prepare(
+      `SELECT id, direction, from_name, from_addr, to_name, to_addr, subject, date, snippet
+       FROM mail_messages WHERE id = ?`
+    )
+    .get(id);
+}
+
+// For prompts: important received mails of the last few days.
 export function getMailForPrompt(days = 3, minImportance = 60): string {
-  return (listMails(days, minImportance) as any[])
+  return (listMails(days, minImportance, "received") as any[])
     .filter((m) => m.ai_status === "done")
     .map(
       (m) =>
         `- ${m.date.slice(0, 16).replace("T", " ")} [${m.category}, ${m.importance}/100] ${m.from_name || m.from_addr} : ${m.summary}` +
         (m.action ? ` Action : ${m.action}` : "")
     )
+    .join("\n");
+}
+
+// For prompts: what Mathéo himself actually sent, regardless of whether a
+// drafted action was ever marked "Envoyé" — ground truth from his Sent
+// folder rather than relying on him remembering to confirm it in the app.
+export function getSentMailForPrompt(days = 30): string {
+  return (listMails(days, 0, "sent") as any[])
+    .map((m) => `- ${m.date.slice(0, 16).replace("T", " ")} à ${m.to_name || m.to_addr} : ${m.subject}`)
     .join("\n");
 }
