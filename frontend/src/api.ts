@@ -532,7 +532,11 @@ export interface WatchItem {
   category: WatchCategory
   title: string
   company: string | null
+  company_desc: string | null
   location: string | null
+  duration: string | null
+  stack: string | null
+  mission: string | null
   url: string | null
   score: number
   reason: string | null

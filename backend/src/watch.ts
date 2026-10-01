@@ -85,6 +85,16 @@ if (!(db.prepare("PRAGMA table_info(watch_items)").all() as { name: string }[]).
   db.exec("ALTER TABLE watch_items ADD COLUMN last_verified_at TEXT");
 }
 
+// Structured fields for the card UI, split out of what used to be one long
+// "reason" paragraph — company_desc/duration/stack/mission render as their
+// own labeled bits, reason stays just the personal fit judgment.
+{
+  const watchItemColumns = (db.prepare("PRAGMA table_info(watch_items)").all() as { name: string }[]).map((c) => c.name);
+  for (const col of ["company_desc", "duration", "stack", "mission"]) {
+    if (!watchItemColumns.includes(col)) db.exec(`ALTER TABLE watch_items ADD COLUMN ${col} TEXT`);
+  }
+}
+
 if ((db.prepare("SELECT COUNT(*) AS n FROM watch_sources").get() as { n: number }).n === 0) {
   const insert = db.prepare("INSERT INTO watch_sources (name, url, kind) VALUES (?, ?, ?)");
   for (const s of DEFAULT_SOURCES) insert.run(s.name, s.url, s.kind);
@@ -117,15 +127,17 @@ const MAX_TEXT_CHARS = 20000;
 const PAUSE_BETWEEN_SOURCES_MS = 4000;
 export const CATEGORIES = ["stage", "alternance", "emploi", "bon_plan", "evenement", "actu"] as const;
 
-// Several sentences, not one — a one-line score justification isn't
-// enough to act on. Company context first (who they are, what they
-// actually do, even briefly if that's all there is), then the offer
-// itself with real detail, then why it specifically matters for him.
+// Split into labeled fields instead of one long paragraph, so the card UI
+// can render each as its own bit (company blurb, duration, tech stack,
+// mission) rather than a wall of text. null is a real, expected value for
+// duree/stack when the page just doesn't say — never invent one.
 const REASON_INSTRUCTION =
-  "- pourquoi : PLUSIEURS phrases détaillées, jamais une seule. D'abord qui est l'entreprise/la marque et ce qu'elle fait concrètement " +
-  "(même brièvement si la page n'en dit pas plus). Puis ce que propose précisément l'offre : missions, compétences ou profil demandé, " +
-  "durée, dates si connues — pas juste redire le titre. Puis en quoi ça le concerne lui précisément (son profil, ses objectifs, ce qui colle ou pas). " +
-  "Pas de tirets cadratins.\n";
+  "- entreprise_desc : 1 à 2 phrases, qui est l'entreprise/la marque et ce qu'elle fait concrètement, même brièvement si la page n'en dit pas plus.\n" +
+  "- duree : durée du poste et/ou dates si connues (ex : \"6 mois, à partir de mars 2026\"), null si la page ne le dit pas.\n" +
+  "- stack : langages, outils ou compétences techniques demandés (ex : \"Python, C++, ROS\"), null si non précisé ou non pertinent pour cette catégorie.\n" +
+  "- mission : 2 à 4 phrases, ce qu'on demande concrètement de faire dans ce poste — pas juste redire le titre.\n" +
+  "- pourquoi : 1 à 2 phrases, en quoi ça le concerne lui précisément (son profil, ses objectifs, ce qui colle ou pas).\n" +
+  "- Pas de tirets cadratins dans aucun champ texte.\n";
 
 interface Source {
   id: number;
@@ -206,7 +218,11 @@ interface ExtractedItem {
   categorie?: string;
   titre?: string;
   entreprise?: string;
+  entreprise_desc?: string | null;
   lieu?: string;
+  duree?: string | null;
+  stack?: string | null;
+  mission?: string | null;
   url?: string | null;
   score?: number;
   pourquoi?: string;
@@ -218,8 +234,9 @@ async function extractItems(source: Source, text: string): Promise<ExtractedItem
     "qui correspondent à ce qu'il veut surveiller (voir son profil) : offres de stage, d'alternance ou d'emploi, bons plans (tarifs, promos), " +
     "événements (roulages, stages de pilotage, compétitions), actus utiles. Ignore les menus, mentions légales et le reste.\n\n" +
     "Réponds uniquement avec un objet JSON :\n" +
-    `{"items": [{"categorie": "${CATEGORIES.join('" | "')}", "titre": "...", "entreprise": "...", "lieu": "...", ` +
-    '"url": "lien exact tiré de la page ou null", "score": 0-100, "pourquoi": "plusieurs phrases détaillées"}]}\n\n' +
+    `{"items": [{"categorie": "${CATEGORIES.join('" | "')}", "titre": "...", "entreprise": "...", "entreprise_desc": "...", "lieu": "...", ` +
+    '"duree": "... ou null", "stack": "... ou null", "mission": "...", ' +
+    '"url": "lien exact tiré de la page ou null", "score": 0-100, "pourquoi": "..."}]}\n\n' +
     "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
     "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
     REASON_INSTRUCTION +
@@ -265,12 +282,13 @@ function saveItems(sourceId: number | null, sourceLabel: string, items: Extracte
   // it was on first discovery defeats the point of improving it at all.
   // status (the swipe) is the only thing never touched here.
   const update = db.prepare(
-    `UPDATE watch_items SET category = ?, title = ?, company = ?, location = ?, score = ?, reason = ?, last_seen_at = datetime('now')
+    `UPDATE watch_items SET category = ?, title = ?, company = ?, location = ?, score = ?, reason = ?,
+       company_desc = ?, duration = ?, stack = ?, mission = ?, last_seen_at = datetime('now')
      WHERE id = ?`
   );
   const insert = db.prepare(
-    `INSERT INTO watch_items (source_id, dedupe_key, category, title, company, location, url, score, reason, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO watch_items (source_id, dedupe_key, category, title, company, location, url, score, reason, status, company_desc, duration, stack, mission)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   let added = 0;
   for (const item of items) {
@@ -282,13 +300,32 @@ function saveItems(sourceId: number | null, sourceLabel: string, items: Extracte
     const location = item.lieu ? String(item.lieu) : null;
     const score = Math.max(0, Math.min(100, Math.round(Number(item.score) || 0)));
     const reason = item.pourquoi ?? null;
+    const companyDesc = item.entreprise_desc ?? null;
+    const duration = item.duree ?? null;
+    const stack = item.stack ?? null;
+    const mission = item.mission ?? null;
     const key = url ?? `${sourceLabel}|${title}|${company ?? ""}`.toLowerCase();
     const existing = findExisting.get(key) as { id: number } | undefined;
     if (existing) {
-      update.run(category, title, company, location, score, reason, existing.id);
+      update.run(category, title, company, location, score, reason, companyDesc, duration, stack, mission, existing.id);
       continue;
     }
-    insert.run(sourceId, key, category, title, company, location, url, score, reason, inheritedStatus(company, category) ?? "new");
+    insert.run(
+      sourceId,
+      key,
+      category,
+      title,
+      company,
+      location,
+      url,
+      score,
+      reason,
+      inheritedStatus(company, category) ?? "new",
+      companyDesc,
+      duration,
+      stack,
+      mission
+    );
     added++;
   }
   return added;
@@ -333,8 +370,9 @@ async function extractFromSearchResults(query: string, results: WebSearchResult[
     "Repère UNIQUEMENT les éléments qui correspondent à ce qu'il veut surveiller (voir son profil) : offres de stage, d'alternance ou d'emploi, " +
     "bons plans, événements, actus utiles. Ignore ce qui est hors sujet, une page de liste générique sans poste précis, ou un résultat trop vague pour en tirer un titre.\n\n" +
     "Réponds uniquement avec un objet JSON :\n" +
-    `{"items": [{"categorie": "${CATEGORIES.join('" | "')}", "titre": "...", "entreprise": "...", "lieu": "...", ` +
-    '"url": "url exacte du résultat", "score": 0-100, "pourquoi": "plusieurs phrases détaillées"}]}\n\n' +
+    `{"items": [{"categorie": "${CATEGORIES.join('" | "')}", "titre": "...", "entreprise": "...", "entreprise_desc": "...", "lieu": "...", ` +
+    '"duree": "... ou null", "stack": "... ou null", "mission": "...", ' +
+    '"url": "url exacte du résultat", "score": 0-100, "pourquoi": "..."}]}\n\n' +
     "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
     "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
     REASON_INSTRUCTION +

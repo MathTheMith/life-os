@@ -44,13 +44,20 @@ const STATUS_LABEL: Record<WatchStatus, string> = {
 }
 
 function ItemCard({ item, fresh }: { item: WatchItem; fresh: boolean }) {
+  const stackTags = (item.stack ?? '')
+    .split(/[,;/]/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+
   return (
     <>
       <div className="watch-item-head">
         <span className="watch-badge">{CATEGORY_LABEL[item.category] ?? item.category}</span>
+        {item.duration && <span className="watch-badge watch-badge--duration">{item.duration}</span>}
         {fresh && <span className="watch-badge watch-badge--new">Nouveau</span>}
         <span className={item.score >= 70 ? 'watch-score watch-score--high' : 'watch-score'}>{item.score}/100</span>
       </div>
+
       {item.url ? (
         <a className="watch-item-title" href={item.url} target="_blank" rel="noopener noreferrer">
           {item.title} ↗
@@ -58,10 +65,40 @@ function ItemCard({ item, fresh }: { item: WatchItem; fresh: boolean }) {
       ) : (
         <span className="watch-item-title">{item.title}</span>
       )}
-      <div className="watch-item-sub">
-        {[item.company, item.location, item.source_name && `via ${item.source_name}`].filter(Boolean).join(' · ')}
-      </div>
-      {item.reason && <p className="watch-item-reason">{item.reason}</p>}
+
+      {item.company && (
+        <div className="watch-item-company">
+          <span className="watch-item-company-name">{item.company}</span>
+          {item.location && <span className="watch-item-company-loc"> · {item.location}</span>}
+        </div>
+      )}
+      {item.company_desc && <p className="watch-item-company-desc">{item.company_desc}</p>}
+
+      {stackTags.length > 0 && (
+        <div className="watch-item-tags">
+          {stackTags.map((tag) => (
+            <span key={tag} className="watch-tag">
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {item.mission && (
+        <div className="watch-item-section">
+          <span className="watch-item-section-label">La mission</span>
+          <p className="watch-item-section-text">{item.mission}</p>
+        </div>
+      )}
+
+      {item.reason && (
+        <div className="watch-item-section watch-item-section--fit">
+          <span className="watch-item-section-label">Pourquoi pour toi</span>
+          <p className="watch-item-section-text">{item.reason}</p>
+        </div>
+      )}
+
+      {item.source_name && <div className="watch-item-sub">via {item.source_name}</div>}
     </>
   )
 }
