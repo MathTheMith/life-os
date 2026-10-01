@@ -12,6 +12,7 @@ import { getMailForPrompt, getSentMailForPrompt } from "../mail.js";
 import { getTodayBriefForPrompt } from "../brief.js";
 import { getActionsForPrompt } from "../actions.js";
 import { toneInstructions } from "../coach.js";
+import { isClaudeTrigger, askClaudeBridge } from "../claudeBridge.js";
 
 export const chatRouter = Router();
 
@@ -198,6 +199,14 @@ chatRouter.post("/", async (req, res) => {
   try {
     let finalText = "";
     let usedWebTool = false;
+
+    if (userMessage && isClaudeTrigger(userMessage)) {
+      try {
+        finalText = await askClaudeBridge(userMessage);
+      } catch (err) {
+        finalText = "Je n'ai pas pu joindre Claude Code : " + (err as Error).message;
+      }
+    } else {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const data = await callAiService({ messages: workingMessages, tools });
       const assistantMessage = data.choices?.[0]?.message;
@@ -224,6 +233,7 @@ chatRouter.post("/", async (req, res) => {
     // page is easy, and hard to catch without rereading), and the one most
     // sessions won't hit, so this doesn't double the cost of every message.
     if (usedWebTool) finalText = await critiqueReply(userMessage || "(message avec image, sans texte)", finalText);
+    }
 
     if (conversationId && conversation) {
       const conv = conversation;

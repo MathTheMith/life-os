@@ -3,3 +3,4 @@ dist
 .env
 frontend-dist
 secrets/
+claude-bridge/session.json

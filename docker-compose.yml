@@ -30,6 +30,14 @@ services:
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
       - ENABLEBANKING_APP_ID=${ENABLEBANKING_APP_ID:-}
       - ENABLEBANKING_PRIVATE_KEY_PATH=/run/secrets/enablebanking_private.key
+      # The "claude" trigger in chat talks to a tiny bridge server running
+      # directly on the HOST (not in a container), because it needs the
+      # `claude` CLI already authenticated there — see claude-bridge/.
+      # host.docker.internal resolves to the default docker0 bridge here,
+      # not this project's own network, so the bridge is addressed by the
+      # fixed gateway IP below instead (pinned via the subnet in
+      # networks.default, so it can't drift on a network recreate).
+      - CLAUDE_BRIDGE_URL=http://172.28.1.1:4200/ask
     volumes:
       - life-os-data:/app/data
       - ./secrets/enablebanking/private.key:/run/secrets/enablebanking_private.key:ro
@@ -40,3 +48,11 @@ services:
 
 volumes:
   life-os-data:
+
+networks:
+  # Fixed subnet so the gateway IP the claude-bridge binds to (172.28.1.1)
+  # can't silently change if this network ever gets recreated.
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.1.0/24
