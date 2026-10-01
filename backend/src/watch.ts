@@ -3,12 +3,21 @@ import { db } from "./db.js";
 import { callAiService, parseJsonReply } from "./aiClient.js";
 import { getProfileForPrompt } from "./routes/profile.js";
 import { getState, setState, parisNow } from "./state.js";
+import { searchWeb, fetchPageText, type WebSearchResult } from "./web.js";
 
 // Web watch, twice a day. Each source is a page (career page, job board listing,
 // circuit or karting site) or a Workday job portal. Once a day the text of
 // every source is fetched; when it changed since last time, the model pulls
 // out the listings that match the profile's "what to watch" section and
 // scores them. The user's ⭐/✕ on past items are fed back as examples.
+//
+// On top of that fixed list, each run also fires a batch of broad web
+// searches (watch_queries) to find things no curated source would ever
+// list — a new team, a one-off posting, a company not on anyone's radar
+// yet. Deliberately cast wide (quantity over precision): the same scoring
+// pass that ranks sourced listings ranks these too, so a lot of mediocre
+// hits sorted down costs nothing but a bit of quota — same budget of
+// quality control as everything else here, nothing new to maintain.
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS watch_sources (
@@ -39,6 +48,15 @@ db.exec(`
     last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
 
+  CREATE TABLE IF NOT EXISTS watch_queries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL UNIQUE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    last_error TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
 `);
 
 // Starting list, from the internship prospection work (only pages checked to
@@ -58,9 +76,39 @@ const DEFAULT_SOURCES: { name: string; url: string; kind: "page" | "workday" }[]
   { name: "Park Events", url: "https://www.parkevents.fr/", kind: "page" },
 ];
 
+// last_verified_at: the freshness check (see checkQuery) only ever covers
+// brand new discoveries — an item saved weeks ago never gets rechecked, so
+// a posting that's since closed just sits there looking as valid as the
+// day it was found. reverifyOldItems() below uses this to work through the
+// backlog a few at a time.
+if (!(db.prepare("PRAGMA table_info(watch_items)").all() as { name: string }[]).some((c) => c.name === "last_verified_at")) {
+  db.exec("ALTER TABLE watch_items ADD COLUMN last_verified_at TEXT");
+}
+
 if ((db.prepare("SELECT COUNT(*) AS n FROM watch_sources").get() as { n: number }).n === 0) {
   const insert = db.prepare("INSERT INTO watch_sources (name, url, kind) VALUES (?, ?, ?)");
   for (const s of DEFAULT_SOURCES) insert.run(s.name, s.url, s.kind);
+}
+
+// Broad on purpose, French and English, several angles on the same goal —
+// quantity over precision, see the module comment above. Editable via
+// /api/watch/queries afterwards, same as the sources list.
+const DEFAULT_QUERIES = [
+  "stage ingénieur data motorsport France",
+  "alternance motorsport ingénieur France",
+  "recrutement écurie course automobile stagiaire",
+  "karting recrutement stage alternance France",
+  "motorsport internship data engineer Europe",
+  "race team internship IT France",
+  "stage performance engineer motorsport",
+  "simracing esport motorsport recrutement stage",
+  "offre emploi motorsport informatique France",
+  "WEC F1 Formula E recrutement stage France",
+];
+
+if ((db.prepare("SELECT COUNT(*) AS n FROM watch_queries").get() as { n: number }).n === 0) {
+  const insert = db.prepare("INSERT INTO watch_queries (query) VALUES (?)");
+  for (const q of DEFAULT_QUERIES) insert.run(q);
 }
 
 const USER_AGENT =
@@ -165,7 +213,9 @@ async function extractItems(source: Source, text: string): Promise<ExtractedItem
     "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
     "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
     "- pourquoi : ce qui le rend intéressant ou non pour lui, concrètement. Pas de tirets cadratins.\n" +
-    "- N'invente jamais d'offre ni de lien. Liste vide si rien de pertinent.\n\n" +
+    "- N'invente jamais d'offre ni de lien. Liste vide si rien de pertinent.\n" +
+    "- N'inclus une offre QUE si cette page dit, là, maintenant, qu'elle est ouverte. Si le texte indique poste pourvu/clos/expiré, ou s'il s'agit " +
+    "d'une actu passée (un événement déjà eu lieu, une annonce datée qui semble ancienne), exclus-la plutôt que de la lister par précaution.\n\n" +
     `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n` +
     `## Ses réactions passées\n${feedbackExamples()}\n\n` +
     `## Page : ${source.name} (${source.url})\n${text}`;
@@ -176,7 +226,10 @@ async function extractItems(source: Source, text: string): Promise<ExtractedItem
   return Array.isArray(parsed.items) ? parsed.items : [];
 }
 
-function saveItems(source: Source, items: ExtractedItem[]): number {
+// sourceId is null for a search-discovered item (watch_queries has no FK
+// of its own — these aren't tied to one page the way a source is, dedup
+// below falls back to the label + title + company instead).
+function saveItems(sourceId: number | null, sourceLabel: string, items: ExtractedItem[]): number {
   const findExisting = db.prepare("SELECT id FROM watch_items WHERE dedupe_key = ?");
   const touch = db.prepare("UPDATE watch_items SET last_seen_at = datetime('now') WHERE id = ?");
   const insert = db.prepare(
@@ -190,14 +243,14 @@ function saveItems(source: Source, items: ExtractedItem[]): number {
     const category = (CATEGORIES as readonly string[]).includes(String(item.categorie)) ? String(item.categorie) : "actu";
     const url = typeof item.url === "string" && /^https?:\/\//.test(item.url) ? item.url : null;
     const company = item.entreprise ? String(item.entreprise).trim() : null;
-    const key = url ?? `${source.id}|${title}|${company ?? ""}`.toLowerCase();
+    const key = url ?? `${sourceLabel}|${title}|${company ?? ""}`.toLowerCase();
     const existing = findExisting.get(key) as { id: number } | undefined;
     if (existing) {
       touch.run(existing.id);
       continue;
     }
     const score = Math.max(0, Math.min(100, Math.round(Number(item.score) || 0)));
-    insert.run(source.id, key, category, title, company, item.lieu ? String(item.lieu) : null, url, score, item.pourquoi ?? null);
+    insert.run(sourceId, key, category, title, company, item.lieu ? String(item.lieu) : null, url, score, item.pourquoi ?? null);
     added++;
   }
   return added;
@@ -212,7 +265,7 @@ async function checkSource(source: Source): Promise<{ added: number; skipped: bo
       return { added: 0, skipped: true };
     }
     const items = await extractItems(source, text);
-    const added = saveItems(source, items);
+    const added = saveItems(source.id, source.name, items);
     // The hash is only stored once extraction succeeded, so a failed run is
     // retried the next day even if the page didn't change.
     db.prepare("UPDATE watch_sources SET last_hash = ?, last_checked_at = datetime('now'), last_error = NULL WHERE id = ?").run(
@@ -226,6 +279,156 @@ async function checkSource(source: Source): Promise<{ added: number; skipped: bo
     db.prepare("UPDATE watch_sources SET last_checked_at = datetime('now'), last_error = ? WHERE id = ?").run(message, source.id);
     return { added: 0, skipped: false };
   }
+}
+
+interface Query {
+  id: number;
+  query: string;
+}
+
+async function extractFromSearchResults(query: string, results: WebSearchResult[]): Promise<ExtractedItem[]> {
+  if (results.length === 0) return [];
+  const list = results.map((r, i) => `### Résultat ${i}\nTitre : ${r.title}\nURL : ${r.url}\n${r.snippet}`).join("\n\n");
+  const prompt =
+    `Tu fais la veille internet de Mathéo. Voici des résultats d'une recherche web (requête : "${query}"), avec pour chacun le texte ` +
+    "de la page LUE À L'INSTANT (pas un extrait de moteur de recherche qui peut dater). " +
+    "Repère UNIQUEMENT les éléments qui correspondent à ce qu'il veut surveiller (voir son profil) : offres de stage, d'alternance ou d'emploi, " +
+    "bons plans, événements, actus utiles. Ignore ce qui est hors sujet, une page de liste générique sans poste précis, ou un résultat trop vague pour en tirer un titre.\n\n" +
+    "Réponds uniquement avec un objet JSON :\n" +
+    `{"items": [{"categorie": "${CATEGORIES.join('" | "')}", "titre": "...", "entreprise": "...", "lieu": "...", ` +
+    '"url": "url exacte du résultat", "score": 0-100, "pourquoi": "une phrase"}]}\n\n' +
+    "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
+    "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
+    "- pourquoi : ce qui le rend intéressant ou non pour lui, concrètement. Pas de tirets cadratins.\n" +
+    "- N'invente jamais d'offre ni d'url : reprends exactement celle du résultat correspondant. Liste vide si rien de pertinent.\n" +
+    "- IMPORTANT, un résultat de recherche peut dater : exclus un résultat si la page lue à l'instant dit que le poste est pourvu/clos/expiré, " +
+    "si elle est vide, a changé de sujet, ou ne parle plus de cette offre — ne te fie JAMAIS au seul titre du résultat de recherche " +
+    "pour décider que l'offre est encore valable, vérifie toujours contre le texte de la page elle-même. " +
+    "Si la vérification en direct était impossible (indiqué dans le texte), ce n'est PAS une preuve que l'offre a disparu — juge alors sur " +
+    "l'extrait de recherche fourni, avec un score un peu plus prudent plutôt qu'une exclusion automatique.\n\n" +
+    `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n` +
+    `## Ses réactions passées\n${feedbackExamples()}\n\n` +
+    `## Résultats\n${list}`;
+
+  const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
+  const raw: string = data.choices?.[0]?.message?.content ?? "";
+  const parsed = parseJsonReply(raw);
+  return Array.isArray(parsed.items) ? parsed.items : [];
+}
+
+// Tavily's snippet comes from its own index, which isn't necessarily
+// re-crawled recently — a result can look like an open posting while the
+// real page has long since taken it down. Each result's page is re-fetched
+// live right before scoring, and the live text replaces the snippet.
+// A fetch failure is NOT treated as proof the posting is gone — a 403 is
+// often just a site blocking automated requests (motorsportjobs.com does
+// this on some pages while its listing page itself is fetchable fine), not
+// evidence of anything about the offer. On failure the original snippet is
+// kept, with a note flagging that live verification wasn't possible, so
+// the model judges with appropriately lower confidence instead of either
+// trusting a stale snippet blindly or discarding a possibly-real listing.
+async function freshenResults(results: WebSearchResult[]): Promise<WebSearchResult[]> {
+  const fresh: WebSearchResult[] = [];
+  for (const [i, r] of results.entries()) {
+    if (i > 0) await new Promise((res) => setTimeout(res, 1000));
+    try {
+      const page = await fetchPageText(r.url);
+      fresh.push({ ...r, snippet: page.text || r.snippet });
+    } catch (err) {
+      fresh.push({
+        ...r,
+        snippet:
+          `[Vérification en direct impossible (${(err as Error).message}) — peut être un simple blocage anti-robot du site, ` +
+          `pas forcément un signe que l'offre a disparu. Extrait du moteur de recherche (peut dater) :]\n${r.snippet}`,
+      });
+    }
+  }
+  return fresh;
+}
+
+async function checkQuery(q: Query): Promise<{ added: number }> {
+  try {
+    const results = await searchWeb(q.query);
+    const fresh = await freshenResults(results);
+    const items = await extractFromSearchResults(q.query, fresh);
+    const added = saveItems(null, `recherche:${q.query}`, items);
+    db.prepare("UPDATE watch_queries SET last_run_at = datetime('now'), last_error = NULL WHERE id = ?").run(q.id);
+    return { added };
+  } catch (err) {
+    const message = (err as Error).message || "Erreur inconnue";
+    console.error(`Veille (recherche) "${q.query}" :`, message);
+    db.prepare("UPDATE watch_queries SET last_run_at = datetime('now'), last_error = ? WHERE id = ?").run(message, q.id);
+    return { added: 0 };
+  }
+}
+
+// Oldest/never-verified first, a handful per run — bounded so this never
+// dominates a run's cost, worked through gradually over many runs instead.
+const REVERIFY_PER_RUN = 8;
+
+async function isStillOpenLive(url: string): Promise<boolean | null> {
+  let page: { text: string };
+  try {
+    page = await fetchPageText(url);
+  } catch {
+    // Same ambiguity as a fresh search result (anti-bot block vs. actually
+    // gone) — null means "couldn't tell", not "it's closed".
+    return null;
+  }
+  try {
+    const data = await callAiService({
+      messages: [
+        {
+          role: "user",
+          content:
+            "Cette page de poste à pourvoir dit-elle explicitement que le poste est clos, pourvu, expiré, ou la page est-elle " +
+            "vide/hors sujet (plus aucun rapport avec une offre) ? Réponds uniquement par OUI ou NON, rien d'autre. " +
+            "NON par défaut si tu n'es pas sûr — ne réponds OUI que si c'est écrit ou évident.\n\n" +
+            page.text.slice(0, 3000),
+        },
+      ],
+      reasoning_effort: "low",
+      max_completion_tokens: 10,
+    });
+    const answer = (data.choices?.[0]?.message?.content ?? "").trim().toUpperCase();
+    return answer.startsWith("OUI");
+  } catch {
+    return null;
+  }
+}
+
+// Closes the other half of the freshness fix: checkQuery only ever
+// verifies brand new finds, so an item saved weeks ago would otherwise sit
+// there looking exactly as valid as the day it was found, forever. Score
+// is zeroed (not deleted) when found closed, keeping the original reason
+// for context — it just naturally sorts to the bottom from then on.
+async function reverifyOldItems(): Promise<number> {
+  const candidates = db
+    .prepare(
+      `SELECT id, url, reason FROM watch_items
+       WHERE url IS NOT NULL AND status IN ('new', 'seen', 'interested') AND score >= 40
+       ORDER BY (last_verified_at IS NULL) DESC, last_verified_at ASC
+       LIMIT ?`
+    )
+    .all(REVERIFY_PER_RUN) as { id: number; url: string; reason: string | null }[];
+
+  let closed = 0;
+  for (const [i, item] of candidates.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1000));
+    const stillOpenResult = await isStillOpenLive(item.url);
+    if (stillOpenResult === true) {
+      closed += 1;
+      db.prepare("UPDATE watch_items SET score = 0, reason = ?, last_verified_at = datetime('now') WHERE id = ?").run(
+        `[Offre probablement retirée, vérifié le ${parisNow().date}] ${item.reason ?? ""}`.trim(),
+        item.id
+      );
+    } else {
+      // null (couldn't verify) and false (still looks open) both just
+      // push the timestamp forward — only a confirmed "closed" downgrades.
+      db.prepare("UPDATE watch_items SET last_verified_at = datetime('now') WHERE id = ?").run(item.id);
+    }
+  }
+  return closed;
 }
 
 let running = false;
@@ -244,6 +447,15 @@ export async function runWatch(): Promise<{ added: number }> {
       if (i > 0) await new Promise((r) => setTimeout(r, PAUSE_BETWEEN_SOURCES_MS));
       added += (await checkSource(source)).added;
     }
+
+    const queries = db.prepare("SELECT id, query FROM watch_queries WHERE enabled = 1").all() as Query[];
+    for (const [i, q] of queries.entries()) {
+      if (i > 0) await new Promise((r) => setTimeout(r, PAUSE_BETWEEN_SOURCES_MS));
+      added += (await checkQuery(q)).added;
+    }
+
+    const closed = await reverifyOldItems();
+    if (closed > 0) console.log(`Veille : ${closed} offre(s) déjà vues marquée(s) comme probablement retirée(s).`);
     setState("watch_last_run", new Date().toISOString());
   } finally {
     running = false;

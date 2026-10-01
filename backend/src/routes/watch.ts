@@ -69,6 +69,26 @@ watchRouter.delete("/sources/:id", (req, res) => {
   res.json({ ok: true });
 });
 
+watchRouter.get("/queries", (_req, res) => {
+  res.json(db.prepare("SELECT id, query, enabled, last_run_at, last_error FROM watch_queries ORDER BY id").all());
+});
+
+watchRouter.post("/queries", (req, res) => {
+  const query = String(req.body?.query ?? "").trim();
+  if (!query) return res.status(400).json({ error: "Requête requise." });
+  try {
+    const result = db.prepare("INSERT INTO watch_queries (query) VALUES (?)").run(query);
+    res.status(201).json({ id: result.lastInsertRowid });
+  } catch {
+    res.status(409).json({ error: "Cette requête existe déjà." });
+  }
+});
+
+watchRouter.delete("/queries/:id", (req, res) => {
+  db.prepare("DELETE FROM watch_queries WHERE id = ?").run(req.params.id);
+  res.json({ ok: true });
+});
+
 watchRouter.get("/status", (_req, res) => {
   res.json({ running: isWatchRunning(), lastRun: getState("watch_last_run") ?? null });
 });
