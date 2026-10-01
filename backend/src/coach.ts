@@ -29,6 +29,10 @@ db.exec(`
 
 const MIN = -5;
 const MAX = 5;
+// However good or bad a single day looks (an evening review, a missed
+// check-in...), the mood shouldn't swing further than this in one calendar
+// day — no jumping from happy to furious overnight on one bad report.
+const DAILY_CAP = 2;
 
 export function getCoach(): { satisfaction: number; comment: string | null; updated_at: string } {
   return db.prepare("SELECT satisfaction, comment, updated_at FROM coach_state WHERE id = 1").get() as {
@@ -39,7 +43,14 @@ export function getCoach(): { satisfaction: number; comment: string | null; upda
 }
 
 export function adjustCoach(date: string, delta: number, comment: string | null) {
-  const step = Math.max(-3, Math.min(3, Math.round(delta)));
+  // Several things can move the mood on the same calendar date (a missed
+  // check-in this morning, a late evening review, a redone analysis...) —
+  // cap the day's NET effect, not just this one call, or stacking several
+  // of them still blows past what one day should ever move it.
+  const dayTotal = (db.prepare("SELECT COALESCE(SUM(delta), 0) AS total FROM coach_history WHERE date = ?").get(date) as { total: number })
+    .total;
+  const wanted = Math.round(delta);
+  const step = Math.max(-DAILY_CAP - dayTotal, Math.min(DAILY_CAP - dayTotal, wanted));
   const next = Math.max(MIN, Math.min(MAX, getCoach().satisfaction + step));
   db.prepare("UPDATE coach_state SET satisfaction = ?, comment = ?, updated_at = datetime('now') WHERE id = 1").run(next, comment);
   db.prepare("INSERT INTO coach_history (date, delta, satisfaction, reason) VALUES (?, ?, ?, ?)").run(date, step, next, comment);
