@@ -117,6 +117,16 @@ const MAX_TEXT_CHARS = 20000;
 const PAUSE_BETWEEN_SOURCES_MS = 4000;
 export const CATEGORIES = ["stage", "alternance", "emploi", "bon_plan", "evenement", "actu"] as const;
 
+// Several sentences, not one — a one-line score justification isn't
+// enough to act on. Company context first (who they are, what they
+// actually do, even briefly if that's all there is), then the offer
+// itself with real detail, then why it specifically matters for him.
+const REASON_INSTRUCTION =
+  "- pourquoi : PLUSIEURS phrases détaillées, jamais une seule. D'abord qui est l'entreprise/la marque et ce qu'elle fait concrètement " +
+  "(même brièvement si la page n'en dit pas plus). Puis ce que propose précisément l'offre : missions, compétences ou profil demandé, " +
+  "durée, dates si connues — pas juste redire le titre. Puis en quoi ça le concerne lui précisément (son profil, ses objectifs, ce qui colle ou pas). " +
+  "Pas de tirets cadratins.\n";
+
 interface Source {
   id: number;
   name: string;
@@ -209,10 +219,10 @@ async function extractItems(source: Source, text: string): Promise<ExtractedItem
     "événements (roulages, stages de pilotage, compétitions), actus utiles. Ignore les menus, mentions légales et le reste.\n\n" +
     "Réponds uniquement avec un objet JSON :\n" +
     `{"items": [{"categorie": "${CATEGORIES.join('" | "')}", "titre": "...", "entreprise": "...", "lieu": "...", ` +
-    '"url": "lien exact tiré de la page ou null", "score": 0-100, "pourquoi": "une phrase"}]}\n\n' +
+    '"url": "lien exact tiré de la page ou null", "score": 0-100, "pourquoi": "plusieurs phrases détaillées"}]}\n\n' +
     "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
     "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
-    "- pourquoi : ce qui le rend intéressant ou non pour lui, concrètement. Pas de tirets cadratins.\n" +
+    REASON_INSTRUCTION +
     "- N'invente jamais d'offre ni de lien. Liste vide si rien de pertinent.\n" +
     "- N'inclus une offre QUE si cette page dit, là, maintenant, qu'elle est ouverte. Si le texte indique poste pourvu/clos/expiré, ou s'il s'agit " +
     "d'une actu passée (un événement déjà eu lieu, une annonce datée qui semble ancienne), exclus-la plutôt que de la lister par précaution.\n\n" +
@@ -226,15 +236,41 @@ async function extractItems(source: Source, text: string): Promise<ExtractedItem
   return Array.isArray(parsed.items) ? parsed.items : [];
 }
 
+const normalizeCompany = (s: string) => s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, "");
+
+// A broad search can turn up the same employer under a different URL or
+// job title than one he already triaged (liked, marked urgent, or passed
+// on) — e.g. a second "General Internship" posting at a company whose
+// "Software Developer Intern" role he already swiped on. That shouldn't
+// come back as a fresh "new" item demanding another look: it inherits
+// whatever he already decided for that company, in the same category.
+function inheritedStatus(company: string | null, category: string): string | null {
+  if (!company || !["stage", "alternance", "emploi"].includes(category)) return null;
+  const target = normalizeCompany(company);
+  if (!target) return null;
+  const rows = db
+    .prepare("SELECT company, status FROM watch_items WHERE category = ? AND status IN ('interested', 'urgent', 'dismissed')")
+    .all(category) as { company: string | null; status: string }[];
+  return rows.find((r) => r.company && normalizeCompany(r.company) === target)?.status ?? null;
+}
+
 // sourceId is null for a search-discovered item (watch_queries has no FK
 // of its own — these aren't tied to one page the way a source is, dedup
 // below falls back to the label + title + company instead).
 function saveItems(sourceId: number | null, sourceLabel: string, items: ExtractedItem[]): number {
   const findExisting = db.prepare("SELECT id FROM watch_items WHERE dedupe_key = ?");
-  const touch = db.prepare("UPDATE watch_items SET last_seen_at = datetime('now') WHERE id = ?");
+  // A rediscovery refreshes score/reason too, not just last_seen_at — the
+  // prompt that produces them keeps improving (e.g. the longer, more
+  // detailed "pourquoi" added later), and freezing it forever at whatever
+  // it was on first discovery defeats the point of improving it at all.
+  // status (the swipe) is the only thing never touched here.
+  const update = db.prepare(
+    `UPDATE watch_items SET category = ?, title = ?, company = ?, location = ?, score = ?, reason = ?, last_seen_at = datetime('now')
+     WHERE id = ?`
+  );
   const insert = db.prepare(
-    `INSERT INTO watch_items (source_id, dedupe_key, category, title, company, location, url, score, reason)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO watch_items (source_id, dedupe_key, category, title, company, location, url, score, reason, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   let added = 0;
   for (const item of items) {
@@ -243,14 +279,16 @@ function saveItems(sourceId: number | null, sourceLabel: string, items: Extracte
     const category = (CATEGORIES as readonly string[]).includes(String(item.categorie)) ? String(item.categorie) : "actu";
     const url = typeof item.url === "string" && /^https?:\/\//.test(item.url) ? item.url : null;
     const company = item.entreprise ? String(item.entreprise).trim() : null;
+    const location = item.lieu ? String(item.lieu) : null;
+    const score = Math.max(0, Math.min(100, Math.round(Number(item.score) || 0)));
+    const reason = item.pourquoi ?? null;
     const key = url ?? `${sourceLabel}|${title}|${company ?? ""}`.toLowerCase();
     const existing = findExisting.get(key) as { id: number } | undefined;
     if (existing) {
-      touch.run(existing.id);
+      update.run(category, title, company, location, score, reason, existing.id);
       continue;
     }
-    const score = Math.max(0, Math.min(100, Math.round(Number(item.score) || 0)));
-    insert.run(sourceId, key, category, title, company, item.lieu ? String(item.lieu) : null, url, score, item.pourquoi ?? null);
+    insert.run(sourceId, key, category, title, company, location, url, score, reason, inheritedStatus(company, category) ?? "new");
     added++;
   }
   return added;
@@ -296,10 +334,10 @@ async function extractFromSearchResults(query: string, results: WebSearchResult[
     "bons plans, événements, actus utiles. Ignore ce qui est hors sujet, une page de liste générique sans poste précis, ou un résultat trop vague pour en tirer un titre.\n\n" +
     "Réponds uniquement avec un objet JSON :\n" +
     `{"items": [{"categorie": "${CATEGORIES.join('" | "')}", "titre": "...", "entreprise": "...", "lieu": "...", ` +
-    '"url": "url exacte du résultat", "score": 0-100, "pourquoi": "une phrase"}]}\n\n' +
+    '"url": "url exacte du résultat", "score": 0-100, "pourquoi": "plusieurs phrases détaillées"}]}\n\n' +
     "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
     "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
-    "- pourquoi : ce qui le rend intéressant ou non pour lui, concrètement. Pas de tirets cadratins.\n" +
+    REASON_INSTRUCTION +
     "- N'invente jamais d'offre ni d'url : reprends exactement celle du résultat correspondant. Liste vide si rien de pertinent.\n" +
     "- IMPORTANT, un résultat de recherche peut dater : exclus un résultat si la page lue à l'instant dit que le poste est pourvu/clos/expiré, " +
     "si elle est vide, a changé de sujet, ou ne parle plus de cette offre — ne te fie JAMAIS au seul titre du résultat de recherche " +
