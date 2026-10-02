@@ -85,9 +85,14 @@ function BriefCard({ brief, onChange }: { brief: Brief | null | undefined; onCha
           <div className={expanded ? 'brief-content' : 'brief-content brief-content--clamped'}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{brief.content}</ReactMarkdown>
           </div>
-          <button className="text-button brief-regenerate" onClick={() => setExpanded((v) => !v)}>
-            {expanded ? 'Réduire' : 'Lire la suite'}
-          </button>
+          <div className="brief-actions">
+            <button className="text-button brief-regenerate" onClick={() => setExpanded((v) => !v)}>
+              {expanded ? 'Réduire' : 'Lire la suite'}
+            </button>
+            <button className="text-button brief-regenerate" onClick={generate} disabled={busy}>
+              {busy ? 'Régénération…' : 'Régénérer'}
+            </button>
+          </div>
           {brief.commitments && brief.commitments.length > 0 && (
             <div className="commitments">
               <span className="question-card-label">🎯 Tes engagements du jour</span>

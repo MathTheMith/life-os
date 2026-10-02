@@ -2051,6 +2051,16 @@ a.watch-item-title:hover {
   margin: 10px auto 0;
 }
 
+.brief-actions {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+}
+
+.brief-actions .brief-regenerate {
+  margin: 10px 0 0;
+}
+
 /* ---------- Swipe deck ---------- */
 
 .swipe-help {
