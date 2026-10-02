@@ -79,6 +79,23 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
     if (el) el.scrollTop = el.scrollHeight
   }, [messages, loading])
 
+  // Tapping the input to type an answer opens the on-screen keyboard, which
+  // shrinks the visible viewport — the messages pane keeps its old
+  // scrollTop, so what was at the bottom (the AI's latest message, right
+  // above the input) ends up hidden below the fold with no scroll
+  // triggered automatically. Re-scrolling to bottom on every viewport
+  // resize (keyboard open/close) keeps it in view.
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const onResize = () => {
+      const el = messagesRef.current
+      if (el) el.scrollTop = el.scrollHeight
+    }
+    vv.addEventListener('resize', onResize)
+    return () => vv.removeEventListener('resize', onResize)
+  }, [])
+
   async function openHistory() {
     setShowHistory(true)
     try {
@@ -313,6 +330,13 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
           ref={textareaRef}
           className="chat-input"
           value={input}
+          onFocus={() => {
+            // Immediate nudge — the visualViewport resize listener above
+            // also catches this, but only once the keyboard animation
+            // actually finishes, which can lag a beat behind the tap.
+            const el = messagesRef.current
+            if (el) el.scrollTop = el.scrollHeight
+          }}
           onChange={(e) => {
             setInput(e.target.value)
             const el = e.target
