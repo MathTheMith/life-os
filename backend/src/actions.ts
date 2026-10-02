@@ -217,7 +217,8 @@ export async function prepareCandidature(itemId: number, urgent: boolean): Promi
   const offer = await offerPageText(item.url);
   const parsed = await aiJson(
     "Prépare la candidature de Mathéo pour cette offre. Réponds uniquement avec un objet JSON :\n" +
-      '{"titre": "Candidature : poste, entreprise", "pourquoi": "2 phrases : pourquoi cette offre vaut le coup pour lui", ' +
+      '{"titre": "Candidature : poste, entreprise — court, le vrai titre du poste, jamais le titre brut d\'une page web ou d\'un article", ' +
+      '"pourquoi": "2 phrases : pourquoi cette offre vaut le coup pour lui", ' +
       '"destinataire": "adresse mail de candidature trouvée sur la page de l\'offre, sinon null", ' +
       '"objet": "objet du mail", "corps": "le texte complet à envoyer", ' +
       '"conseil": "une chose concrète à apprendre, tester ou préparer pour maximiser ses chances sur CETTE offre (ex : un outil demandé), ou null"}\n\n' +
@@ -238,13 +239,19 @@ export async function prepareCandidature(itemId: number, urgent: boolean): Promi
   const bodyMd = [parsed.pourquoi, parsed.conseil ? `**À faire pour mettre toutes les chances de ton côté :** ${parsed.conseil}` : ""]
     .filter(Boolean)
     .join("\n\n");
+  // Short and concrete ("Candidature : poste, entreprise"), from the AI —
+  // reused below for the todo/agenda label too, instead of falling back to
+  // item.title, which can be a scraped page heading rather than a job title
+  // (e.g. a news roundup article, not a posting) and reads as unclear on a
+  // short todo list.
+  const title = String(parsed.titre || `Candidature : ${item.title}`);
   const result = db
     .prepare(
       `INSERT INTO actions (kind, title, reason, body_md, mail_to, mail_subject, mail_body, watch_item_id, due_date)
        VALUES ('candidature', ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
-      String(parsed.titre || `Candidature : ${item.title}`),
+      title,
       to ? `Mail à envoyer à ${to}` : "Candidature par formulaire : le texte te sera envoyé en brouillon pour le copier",
       bodyMd,
       to,
@@ -256,7 +263,7 @@ export async function prepareCandidature(itemId: number, urgent: boolean): Promi
   const id = Number(result.lastInsertRowid);
 
   if (urgent) {
-    const label = `Postuler : ${item.title}${item.company ? ` (${item.company})` : ""}`;
+    const label = title;
     const todo = db.prepare("INSERT INTO todos (title) VALUES (?)").run(label);
     // A nudge this afternoon, or in an hour if the afternoon is already over.
     const now = parisNowLocal();

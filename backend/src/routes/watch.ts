@@ -44,7 +44,17 @@ watchRouter.post("/items/:id/status", (req, res) => {
     if (item && ["stage", "alternance", "emploi"].includes(item.category)) {
       prepareCandidature(item.id, true).catch((err) => console.error("Candidature urgente :", err));
     } else if (item) {
-      db.prepare("INSERT INTO todos (title) VALUES (?)").run(`${item.title}${item.company ? ` (${item.company})` : ""}`);
+      // A news article's own headline can run long and read as unclear on a
+      // short todo list (e.g. a roundup article's title, not an action) —
+      // a verb up front plus a trim keeps it short and says what to do.
+      const verb = item.category === "actu" ? "Lire" : "Voir";
+      let title = item.title;
+      if (title.length > 45) {
+        const cut = title.slice(0, 45);
+        const lastSpace = cut.lastIndexOf(" ");
+        title = `${lastSpace > 20 ? cut.slice(0, lastSpace) : cut}…`;
+      }
+      db.prepare("INSERT INTO todos (title) VALUES (?)").run(`${verb} : ${title}${item.company ? ` (${item.company})` : ""}`);
     }
   }
   res.json({ ok: true });
