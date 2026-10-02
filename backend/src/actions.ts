@@ -223,6 +223,10 @@ export async function prepareCandidature(itemId: number, urgent: boolean): Promi
       '"objet": "objet du mail", "corps": "le texte complet à envoyer", ' +
       '"conseil": "une chose concrète à apprendre, tester ou préparer pour maximiser ses chances sur CETTE offre (ex : un outil demandé), ou null"}\n\n' +
       "- Langue : celle de l'offre (anglais si l'offre est en anglais).\n" +
+      "- Si le lieu de l'offre n'est ni en France ni dans l'UE/l'espace Schengen (ex : États-Unis, Royaume-Uni, Canada...), ajoute une phrase " +
+      "précisant qu'il est citoyen français basé en France, ouvert à la relocalisation, et qu'il aurait besoin d'un sponsoring de visa pour " +
+      "travailler dans ce pays — les recruteurs américains filtrent sur ce point précis, un indicatif +33 seul ne suffit pas. " +
+      "Rien de tout ça si l'offre est en France ou dans l'UE : pas pertinent, ne pas l'ajouter.\n" +
       "- S'il n'y a pas d'adresse mail (candidature par formulaire), le corps est le message à coller dans le formulaire.\n" +
       "- Court (moins de 200 mots), ciblé sur les exigences de l'offre, avec ses projets concrets. Signe Mathéo Vachon.\n" +
       `- ${WRITING_RULES}\n\n` +
