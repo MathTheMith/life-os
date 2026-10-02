@@ -11,6 +11,7 @@ import { getAgendaForPrompt } from "./agenda.js";
 import { getMailForPrompt, getSentMailForPrompt } from "../mail.js";
 import { getTodayBriefForPrompt } from "../brief.js";
 import { getActionsForPrompt } from "../actions.js";
+import { getPhoneUsageForPrompt } from "./phone.js";
 import { toneInstructions } from "../coach.js";
 import { isClaudeTrigger, askClaudeBridge } from "../claudeBridge.js";
 
@@ -175,6 +176,8 @@ chatRouter.post("/", async (req, res) => {
   if (actions) systemPrompt += `\n\n## Actions que tu lui as préparées (il les valide dans l'onglet Aujourd'hui)\n${actions}`;
   const watch = getWatchForPrompt();
   if (watch) systemPrompt += `\n\n## Veille : trouvailles pertinentes des 7 derniers jours (score sur 100)\n${watch}`;
+  const phoneUsage = getPhoneUsageForPrompt();
+  if (phoneUsage) systemPrompt += `\n\n## Temps d'écran du téléphone, 7 derniers jours (ne le mentionne que si pertinent, pas à chaque message)\n${phoneUsage}`;
   if (conversation?.kind === "soir") systemPrompt += `\n\n${getEveningInstructions()}`;
   // The general "save his answer when he replies to a question you asked"
   // rule further up is already supposed to cover this, but it's buried in

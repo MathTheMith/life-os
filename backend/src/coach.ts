@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "./db.js";
+import { getPhoneUsageForDate } from "./routes/phone.js";
 
 // The coach's mood toward the user, from -5 (very unhappy) to +5 (very
 // happy). It moves with what the user actually does: the evening review
@@ -124,6 +125,7 @@ export function dayEvidence(date: string): string {
     `### Tâches encore ouvertes\n${list(openTodos.map((t) => t.title))}`,
     `### Actions préparées par toi\n${list(actions.map((a) => `[${a.kind}] ${a.title} : ${statusLabel[a.status] ?? a.status}`))}`,
     `### Agenda du jour\n${list(events.map((e) => `${e.start_at.length > 10 ? e.start_at.slice(11, 16) : "journée"} ${e.title}`))}`,
+    `### Temps d'écran du téléphone ce jour-là\n${getPhoneUsageForDate(date)}`,
   ].join("\n\n");
 }
 

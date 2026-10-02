@@ -28,6 +28,7 @@ const LAUNCHER_ROUTES: { method: string; pattern: RegExp }[] = [
   { method: "POST", pattern: /^\/todos$/ },
   { method: "POST", pattern: /^\/todos\/\d+\/toggle$/ },
   { method: "DELETE", pattern: /^\/todos\/\d+$/ },
+  { method: "POST", pattern: /^\/phone\/screen-time$/ },
 ];
 
 db.exec(`
