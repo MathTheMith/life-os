@@ -423,8 +423,11 @@
 .chat {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  /* height, not flex: 1 — it's a direct child of .app-content now (see
+     App.tsx), not a flex item inside .app-scroll anymore. */
+  height: 100%;
   min-height: 0;
+  padding: 8px 16px 110px;
 }
 
 .chat-topbar {

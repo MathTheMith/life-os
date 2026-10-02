@@ -134,23 +134,32 @@ function MainApp() {
         <BankExpiryBanner onGoToImport={() => setOverlay({ page: 'import' })} />
 
         <main className="app-content">
-          {/* Keying by tab gives each one its own fresh scroll container —
-              no leftover scroll position from whatever was open before. */}
-          <div className="app-scroll" key={tab}>
-            {tab === 'today' && (
-              <TodayPage
-                onOpenAgenda={() => selectTab('agenda')}
-                onOpenBudget={() => setOverlay({ page: 'me', section: 'budget' })}
-                onAnswer={(id) => {
-                  setChatConversationId(id)
-                  selectTab('chat')
-                }}
-              />
-            )}
-            {tab === 'agenda' && <AgendaPage />}
-            {tab === 'radar' && <RadarPage initialView={LAUNCH_PARAMS.get('view') === 'mails' ? 'mails' : 'web'} />}
-            {tab === 'chat' && <Chat openEvening={LAUNCH_PARAMS.has('evening')} openConversationId={chatConversationId} />}
-          </div>
+          {/* Chat manages its own internal scrolling (just the messages
+              pane, topbar and input stay put) — nesting it in the same
+              scrollable .app-scroll every other tab uses gave the page two
+              scrollable ancestors at once, which is exactly when a mobile
+              browser's "scroll the focused input into view" on keyboard
+              open picks the wrong one and hides the latest message. */}
+          {tab === 'chat' ? (
+            <Chat openEvening={LAUNCH_PARAMS.has('evening')} openConversationId={chatConversationId} />
+          ) : (
+            // Keying by tab gives each one its own fresh scroll container —
+            // no leftover scroll position from whatever was open before.
+            <div className="app-scroll" key={tab}>
+              {tab === 'today' && (
+                <TodayPage
+                  onOpenAgenda={() => selectTab('agenda')}
+                  onOpenBudget={() => setOverlay({ page: 'me', section: 'budget' })}
+                  onAnswer={(id) => {
+                    setChatConversationId(id)
+                    selectTab('chat')
+                  }}
+                />
+              )}
+              {tab === 'agenda' && <AgendaPage />}
+              {tab === 'radar' && <RadarPage initialView={LAUNCH_PARAMS.get('view') === 'mails' ? 'mails' : 'web'} />}
+            </div>
+          )}
         </main>
 
         <nav className="dock">
