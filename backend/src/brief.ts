@@ -153,6 +153,7 @@ export async function runBrief(date = parisNow().date, notify = true) {
   ).run(date, JSON.stringify(brief.notification), brief.content, brief.question, JSON.stringify(brief.commitments));
   if (notify) await sendPush({ ...brief.notification, url: "/?tab=today", tag: "brief" });
   pruneStaleQuestionChats(date);
+  pruneStaleEveningChats(date);
   return brief;
 }
 
@@ -163,6 +164,21 @@ export async function runBrief(date = parisNow().date, notify = true) {
 function pruneStaleQuestionChats(currentDate: string) {
   const stale = db
     .prepare("SELECT id FROM conversations WHERE kind = 'question' AND question_date IS NOT NULL AND question_date != ?")
+    .all(currentDate) as { id: number }[];
+  for (const { id } of stale) deleteConversationById(id);
+}
+
+// Same idea as the question chat above, once the day it covers is over —
+// but only once it was actually "Terminé": its full transcript is already
+// in journal_entries.content by then (see journal.ts), so the raw
+// conversation has nothing left to lose. An evening chat someone opened
+// but never finished is left alone — that one's the only copy of itself.
+function pruneStaleEveningChats(currentDate: string) {
+  const stale = db
+    .prepare(
+      `SELECT id FROM conversations
+       WHERE kind = 'soir' AND journal_date IS NOT NULL AND journal_date != ? AND journal_entry_id IS NOT NULL`
+    )
     .all(currentDate) as { id: number }[];
   for (const { id } of stale) deleteConversationById(id);
 }

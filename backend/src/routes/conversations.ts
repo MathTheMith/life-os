@@ -17,8 +17,18 @@ if (!(db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[]
   db.exec("ALTER TABLE conversations ADD COLUMN question_date TEXT");
 }
 
+// A protected conversation (e.g. a main, ongoing chat Mathéo wants to keep
+// around for good) can't be deleted — from this app or by mistake — unlike
+// the disposable kinds (question/evening chats) that get pruned once stale.
+if (!(db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[]).some((c) => c.name === "protected")) {
+  db.exec("ALTER TABLE conversations ADD COLUMN protected INTEGER NOT NULL DEFAULT 0");
+}
+
 conversationsRouter.get("/", (_req, res) => {
-  res.json(db.prepare("SELECT id, title, kind, created_at, updated_at FROM conversations ORDER BY updated_at DESC").all());
+  const rows = db
+    .prepare("SELECT id, title, kind, protected, created_at, updated_at FROM conversations ORDER BY updated_at DESC")
+    .all() as { protected: number }[];
+  res.json(rows.map((r) => ({ ...r, protected: !!r.protected })));
 });
 
 // Images live on disk, not in the database — the ON DELETE CASCADE on
@@ -26,6 +36,8 @@ conversationsRouter.get("/", (_req, res) => {
 // left as orphans otherwise. Shared by the manual delete route below and
 // brief.ts's automatic cleanup of stale "Question du jour" conversations.
 export function deleteConversationById(id: number) {
+  const row = db.prepare("SELECT protected FROM conversations WHERE id = ?").get(id) as { protected: number } | undefined;
+  if (!row || row.protected) return;
   const imagePaths = db
     .prepare("SELECT image_path FROM conversation_messages WHERE conversation_id = ? AND image_path IS NOT NULL")
     .all(id) as { image_path: string }[];
@@ -105,6 +117,8 @@ conversationsRouter.patch("/:id", (req, res) => {
 });
 
 conversationsRouter.delete("/:id", (req, res) => {
+  const row = db.prepare("SELECT protected FROM conversations WHERE id = ?").get(req.params.id) as { protected: number } | undefined;
+  if (row?.protected) return res.status(400).json({ error: "Cette conversation est protégée, elle ne peut pas être supprimée." });
   deleteConversationById(Number(req.params.id));
   res.json({ ok: true });
 });

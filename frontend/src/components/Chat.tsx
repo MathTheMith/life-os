@@ -379,13 +379,15 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
                       <span className="conversation-row-title">{c.title}</span>
                       <span className="conversation-row-date">{formatDate(c.updated_at)}</span>
                     </div>
-                    <button
-                      className="icon-action-button icon-action-button--danger"
-                      onClick={(e) => handleDeleteConversation(c.id, e)}
-                      aria-label="Supprimer la conversation"
-                    >
-                      <TrashIcon size={16} />
-                    </button>
+                    {!c.protected && (
+                      <button
+                        className="icon-action-button icon-action-button--danger"
+                        onClick={(e) => handleDeleteConversation(c.id, e)}
+                        aria-label="Supprimer la conversation"
+                      >
+                        <TrashIcon size={16} />
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
