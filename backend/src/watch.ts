@@ -136,7 +136,9 @@ const REASON_INSTRUCTION =
   "- duree : durée du poste et/ou dates si connues (ex : \"6 mois, à partir de mars 2026\"), null si la page ne le dit pas.\n" +
   "- stack : langages, outils ou compétences techniques demandés (ex : \"Python, C++, ROS\"), null si non précisé ou non pertinent pour cette catégorie.\n" +
   "- mission : 2 à 4 phrases, ce qu'on demande concrètement de faire dans ce poste — pas juste redire le titre.\n" +
-  "- pourquoi : 1 à 2 phrases, en quoi ça le concerne lui précisément (son profil, ses objectifs, ce qui colle ou pas).\n" +
+  "- pourquoi : 1 à 2 phrases, en quoi ça le concerne lui précisément (son profil, ses objectifs, ce qui colle ou pas). " +
+  "Si la page demande un niveau d'expérience (ex : \"5 ans minimum\", \"senior\", \"confirmé\") que son profil n'a clairement pas, dis-le explicitement " +
+  "et sans détour (ex : \"Demande 5 ans d'expérience minimum, pas réaliste pour toi maintenant\") — ne laisse jamais deviner un décalage que tu as repéré.\n" +
   "- Pas de tirets cadratins dans aucun champ texte.\n";
 
 interface Source {
@@ -238,7 +240,7 @@ async function extractItems(source: Source, text: string): Promise<ExtractedItem
     '"duree": "... ou null", "stack": "... ou null", "mission": "...", ' +
     '"url": "lien exact tiré de la page ou null", "score": 0-100, "pourquoi": "..."}]}\n\n' +
     "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
-    "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
+    "en France près de chez lui vaut 80 à 100. Un poste senior demandant une expérience qu'il n'a clairement pas (ex : 5 ans minimum) vaut moins de 15, pas juste moins de 30 — ce n'est pas un détail mineur, c'est généralement disqualifiant. Un poste hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
     REASON_INSTRUCTION +
     "- N'invente jamais d'offre ni de lien. Liste vide si rien de pertinent.\n" +
     "- N'inclus une offre QUE si cette page dit, là, maintenant, qu'elle est ouverte. Si le texte indique poste pourvu/clos/expiré, ou s'il s'agit " +
@@ -374,7 +376,7 @@ async function extractFromSearchResults(query: string, results: WebSearchResult[
     '"duree": "... ou null", "stack": "... ou null", "mission": "...", ' +
     '"url": "url exacte du résultat", "score": 0-100, "pourquoi": "..."}]}\n\n' +
     "- score : pertinence pour LUI (profil, objectifs, contraintes, lieux, dates de disponibilité). Un stage ou une alternance IT en motorsport " +
-    "en France près de chez lui vaut 80 à 100. Un poste senior, hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
+    "en France près de chez lui vaut 80 à 100. Un poste senior demandant une expérience qu'il n'a clairement pas (ex : 5 ans minimum) vaut moins de 15, pas juste moins de 30 — ce n'est pas un détail mineur, c'est généralement disqualifiant. Un poste hors de ses compétences ou très loin sans intérêt particulier vaut moins de 30.\n" +
     REASON_INSTRUCTION +
     "- N'invente jamais d'offre ni d'url : reprends exactement celle du résultat correspondant. Liste vide si rien de pertinent.\n" +
     "- IMPORTANT, un résultat de recherche peut dater : exclus un résultat si la page lue à l'instant dit que le poste est pourvu/clos/expiré, " +
@@ -479,10 +481,16 @@ async function isStillOpenLive(url: string): Promise<boolean | null> {
 // is zeroed (not deleted) when found closed, keeping the original reason
 // for context — it just naturally sorts to the bottom from then on.
 async function reverifyOldItems(): Promise<number> {
+  // Liked or urgent items are re-verified regardless of score — he already
+  // singled them out, so staleness matters there even at a modest score
+  // (this is exactly how a since-closed posting sat unchecked: scored 35,
+  // swiped urgent, never revisited because 35 < 40). The floor only
+  // applies to new/seen clutter never otherwise acted on, to keep the
+  // budget off low-value items.
   const candidates = db
     .prepare(
       `SELECT id, url, reason FROM watch_items
-       WHERE url IS NOT NULL AND status IN ('new', 'seen', 'interested') AND score >= 40
+       WHERE url IS NOT NULL AND (status IN ('interested', 'urgent') OR (status IN ('new', 'seen') AND score >= 40))
        ORDER BY (last_verified_at IS NULL) DESC, last_verified_at ASC
        LIMIT ?`
     )
