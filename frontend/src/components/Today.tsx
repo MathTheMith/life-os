@@ -13,6 +13,7 @@ import {
   fetchTodos,
   createTodo,
   updateTodo,
+  deleteTodo,
   fetchAgenda,
   fetchCoach,
   type CoachMood,
@@ -23,7 +24,7 @@ import {
 } from '../api'
 import { NotificationsCard } from './Planning'
 import { ActionsCard } from './Actions'
-import { PlusIcon } from '../icons'
+import { PlusIcon, EditIcon, TrashIcon } from '../icons'
 
 // The home page: what matters today, readable in half a minute. Anything
 // with nothing to show is left out instead of saying "nothing yet".
@@ -198,17 +199,27 @@ function parisToday(): string {
 }
 
 // Today's habits and open tasks in one checklist.
+// "Lire :" / "Voir :" entries are reading reminders, not real tasks — they
+// sink to the bottom of the list instead of competing with actual to-dos.
+const READ_PREFIX = /^(Lire|Voir) :/
+function byReadLast(a: Todo, b: Todo) {
+  const aRead = READ_PREFIX.test(a.title)
+  const bRead = READ_PREFIX.test(b.title)
+  return aRead === bRead ? 0 : aRead ? 1 : -1
+}
+
 function DayList() {
   const [habits, setHabits] = useState<Goal[] | null>(null)
   const [todos, setTodos] = useState<Todo[] | null>(null)
   const [draft, setDraft] = useState('')
+  const [editing, setEditing] = useState(false)
 
   const load = () => {
     fetchGoals()
       .then((goals) => setHabits(goals.filter((g) => g.kind === 'recurrent')))
       .catch(() => setHabits([]))
     fetchTodos()
-      .then((list) => setTodos(list.filter((t) => !t.done)))
+      .then((list) => setTodos(list.filter((t) => !t.done).sort(byReadLast)))
       .catch(() => setTodos([]))
   }
 
@@ -225,6 +236,16 @@ function DayList() {
     await updateTodo(todo.id, { done: true })
   }
 
+  async function renameTodo(todo: Todo, title: string) {
+    setTodos((prev) => prev?.map((t) => (t.id === todo.id ? { ...t, title } : t)) ?? null)
+    if (title.trim() && title !== todo.title) await updateTodo(todo.id, { title: title.trim() })
+  }
+
+  async function removeTodo(todo: Todo) {
+    setTodos((prev) => prev?.filter((t) => t.id !== todo.id) ?? null)
+    await deleteTodo(todo.id)
+  }
+
   async function addTodo(e: React.FormEvent) {
     e.preventDefault()
     if (!draft.trim()) return
@@ -237,7 +258,16 @@ function DayList() {
 
   return (
     <div className="glass-card">
-      <h2 className="section-title">À faire</h2>
+      <div className="agenda-header">
+        <h2 className="section-title">À faire</h2>
+        <button
+          className={editing ? 'icon-button icon-button--active' : 'icon-button'}
+          onClick={() => setEditing((v) => !v)}
+          aria-label={editing ? 'Terminer la modification' : 'Modifier les tâches'}
+        >
+          <EditIcon size={16} />
+        </button>
+      </div>
       <ul className="todo-list">
         {habits.map((h) => (
           <li key={`h${h.id}`} className={h.checkedInToday ? 'todo-row todo-row--done' : 'todo-row'}>
@@ -250,12 +280,29 @@ function DayList() {
             {h.streak > 0 && <span className="habit-week-streak">🔥{h.streak}</span>}
           </li>
         ))}
-        {todos.map((t) => (
-          <li key={`t${t.id}`} className="todo-row">
-            <button className="habit-check" onClick={() => completeTodo(t)} aria-label="Marquer comme fait" />
-            <span className="todo-title">{t.title}</span>
-          </li>
-        ))}
+        {todos.map((t) =>
+          editing ? (
+            <li key={`t${t.id}`} className="todo-row todo-row--editing">
+              <input
+                className="todo-edit-input"
+                value={t.title}
+                onChange={(e) => renameTodo(t, e.target.value)}
+              />
+              <button
+                className="icon-action-button icon-action-button--danger"
+                onClick={() => removeTodo(t)}
+                aria-label="Supprimer la tâche"
+              >
+                <TrashIcon size={16} />
+              </button>
+            </li>
+          ) : (
+            <li key={`t${t.id}`} className="todo-row">
+              <button className="habit-check" onClick={() => completeTodo(t)} aria-label="Marquer comme fait" />
+              <span className="todo-title">{t.title}</span>
+            </li>
+          )
+        )}
       </ul>
       <form onSubmit={addTodo} className="todo-add-row">
         <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Ajouter une tâche…" />

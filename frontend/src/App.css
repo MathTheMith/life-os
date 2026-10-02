@@ -1174,6 +1174,12 @@
   opacity: 0.5;
 }
 
+.icon-button--active {
+  background: rgba(255, 122, 69, 0.14);
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+
 .modal-form {
   display: flex;
   flex-direction: column;
@@ -1525,6 +1531,7 @@
 .todo-add-row {
   display: flex;
   gap: 10px;
+  margin-top: 14px;
 }
 
 .todo-add-row input {
@@ -1535,6 +1542,21 @@
   background: rgba(255, 255, 255, 0.05);
   color: var(--text-primary);
   font-size: 0.9rem;
+}
+
+.todo-row--editing {
+  gap: 10px;
+}
+
+.todo-edit-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+  font-size: 0.87rem;
 }
 
 .todo-list {
