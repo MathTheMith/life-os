@@ -23,6 +23,15 @@ mailRouter.post("/run", (_req, res) => {
   res.json({ running: true });
 });
 
+// For the launcher's radar/mail indicator widget: how many triaged mails
+// are sitting there, scored important, that he hasn't swiped on yet.
+mailRouter.get("/summary", (_req, res) => {
+  const { importantCount } = db
+    .prepare("SELECT COUNT(*) AS importantCount FROM mail_messages WHERE ai_status = 'done' AND user_rating IS NULL AND importance >= 50")
+    .get() as { importantCount: number };
+  res.json({ importantCount });
+});
+
 // The user's swipe: "important", "not", or null to undo.
 mailRouter.post("/:id/rate", (req, res) => {
   const rating = req.body?.rating ?? null;

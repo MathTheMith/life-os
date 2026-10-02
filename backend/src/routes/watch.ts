@@ -22,6 +22,15 @@ watchRouter.get("/items", (_req, res) => {
   );
 });
 
+// For the launcher's radar/mail indicator widget: how many hot, untriaged
+// offers are sitting there — not the full items (reasons, company blurbs...).
+watchRouter.get("/summary", (_req, res) => {
+  const { hotCount } = db
+    .prepare("SELECT COUNT(*) AS hotCount FROM watch_items WHERE status IN ('new', 'seen') AND score >= 70")
+    .get() as { hotCount: number };
+  res.json({ hotCount });
+});
+
 watchRouter.post("/items/:id/status", (req, res) => {
   const status = String(req.body?.status ?? "");
   if (!STATUSES.includes(status)) return res.status(400).json({ error: "Statut invalide." });

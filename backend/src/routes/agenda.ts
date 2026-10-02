@@ -251,6 +251,15 @@ agendaRouter.get("/", (req, res) => {
   res.json(listAgenda(from, to));
 });
 
+// Lightweight readout for the launcher's agenda widget: today and tomorrow
+// only, stripped to what a home-screen card needs — not the full event
+// (notes can carry whatever a mail or chat put there).
+agendaRouter.get("/upcoming", (_req, res) => {
+  const today = parisNowLocal().slice(0, 10);
+  const events = listAgenda(today, addDays(today, 1));
+  res.json(events.map((e) => ({ id: e.id, title: e.title, start_at: e.start_at, all_day: e.all_day })));
+});
+
 agendaRouter.post("/", (req, res) => {
   try {
     res.status(201).json(addEvent({ ...req.body, source: "user" }).event);
