@@ -507,6 +507,72 @@ async function reverifyOldItems(): Promise<number> {
   return closed;
 }
 
+// Per-item fields (company_desc/duration/stack/mission) added after some
+// items were already saved — checkSource skips a page whose hash hasn't
+// changed, and checkQuery only ever touches whatever a search happens to
+// resurface, so neither naturally goes back and fills in what an older row
+// is missing. This does, a few at a time: re-reads the item's own page
+// (falling back to a fresh search if the link is dead) and fills in just
+// the new fields, in place — status, score history and dedupe_key untouched.
+const BACKFILL_PER_RUN = 6;
+
+async function backfillItemDetails(item: { id: number; category: string; title: string; company: string | null; url: string }) {
+  let context: string | null = null;
+  try {
+    context = (await fetchPageText(item.url)).text;
+  } catch {
+    try {
+      const results = await searchWeb(`${item.title} ${item.company ?? ""}`.trim());
+      context = results.slice(0, 3).map((r) => `${r.title}\n${r.snippet}`).join("\n\n") || null;
+    } catch {
+      context = null;
+    }
+  }
+  if (!context) return false;
+
+  const prompt =
+    "Tu complètes une fiche déjà présente dans la veille de Mathéo avec des champs qui n'existaient pas encore quand elle a été enregistrée. " +
+    "Voici le texte de la page (ou, si le lien ne répond plus, des extraits de recherche à son sujet).\n\n" +
+    "Réponds uniquement avec un objet JSON :\n" +
+    '{"entreprise_desc": "...", "duree": "... ou null", "stack": "... ou null", "mission": "...", "pourquoi": "..."}\n\n' +
+    REASON_INSTRUCTION +
+    "- Si le texte ne parle plus clairement de cette offre précise (lien mort retombé sur autre chose), réponds avec tous les champs à null.\n\n" +
+    `## Fiche déjà enregistrée\n${item.title}${item.company ? ` chez ${item.company}` : ""} (catégorie : ${item.category})\n\n` +
+    `## Profil\n${getProfileForPrompt() || "(vide)"}\n\n` +
+    `## Texte\n${context}`;
+
+  const data = await callAiService({ messages: [{ role: "user", content: prompt }] });
+  const parsed = parseJsonReply(data.choices?.[0]?.message?.content ?? "");
+  if (!parsed.entreprise_desc && !parsed.mission) return false;
+
+  db.prepare(
+    `UPDATE watch_items SET company_desc = ?, duration = ?, stack = ?, mission = ?, reason = COALESCE(?, reason) WHERE id = ?`
+  ).run(parsed.entreprise_desc ?? null, parsed.duree ?? null, parsed.stack ?? null, parsed.mission ?? null, parsed.pourquoi ?? null, item.id);
+  return true;
+}
+
+export async function backfillMissingDetails(): Promise<number> {
+  const candidates = db
+    .prepare(
+      `SELECT id, category, title, company, url FROM watch_items
+       WHERE url IS NOT NULL AND company_desc IS NULL AND mission IS NULL AND status != 'dismissed'
+       ORDER BY score DESC
+       LIMIT ?`
+    )
+    .all(BACKFILL_PER_RUN) as { id: number; category: string; title: string; company: string | null; url: string }[];
+
+  let filled = 0;
+  for (const [i, item] of candidates.entries()) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 1000));
+    try {
+      if (await backfillItemDetails(item)) filled += 1;
+    } catch (err) {
+      console.error(`Veille (complément fiche #${item.id}) :`, (err as Error).message);
+    }
+  }
+  return filled;
+}
+
 let running = false;
 
 export function isWatchRunning() {
@@ -532,6 +598,8 @@ export async function runWatch(): Promise<{ added: number }> {
 
     const closed = await reverifyOldItems();
     if (closed > 0) console.log(`Veille : ${closed} offre(s) déjà vues marquée(s) comme probablement retirée(s).`);
+    const filled = await backfillMissingDetails();
+    if (filled > 0) console.log(`Veille : ${filled} fiche(s) complétée(s) avec les nouveaux champs.`);
     setState("watch_last_run", new Date().toISOString());
   } finally {
     running = false;
