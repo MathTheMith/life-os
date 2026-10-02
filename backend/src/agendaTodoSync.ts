@@ -34,7 +34,7 @@ export function syncAgendaTodos() {
     .all(today, today) as { id: number; title: string; all_day: number; start_at: string }[];
   for (const e of due) {
     const time = e.all_day ? "" : ` (${e.start_at.slice(11, 16)})`;
-    insertTodo.run(`Aujourd'hui : ${e.title}${time}`, e.id);
+    insertTodo.run(`${e.title}${time}`, e.id);
   }
 
   db.prepare(

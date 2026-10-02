@@ -35,7 +35,7 @@ watchRouter.post("/items/:id/status", (req, res) => {
     if (item && ["stage", "alternance", "emploi"].includes(item.category)) {
       prepareCandidature(item.id, true).catch((err) => console.error("Candidature urgente :", err));
     } else if (item) {
-      db.prepare("INSERT INTO todos (title) VALUES (?)").run(`Aujourd'hui : ${item.title}${item.company ? ` (${item.company})` : ""}`);
+      db.prepare("INSERT INTO todos (title) VALUES (?)").run(`${item.title}${item.company ? ` (${item.company})` : ""}`);
     }
   }
   res.json({ ok: true });
