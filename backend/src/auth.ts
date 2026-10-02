@@ -79,6 +79,19 @@ function hasLauncherAccess(req: Request): boolean {
   return LAUNCHER_ROUTES.some((r) => r.method === req.method && r.pattern.test(req.path));
 }
 
+// The host crontab hits this one route unattended to pull in new bank
+// transactions without anyone ever opening the app. A dedicated secret
+// (not LAUNCHER_TOKEN — that one's deliberately kept away from bank data,
+// see above) scoped to just this route, so a leaked cron secret still
+// can't reach anything else.
+function hasCronAccess(req: Request): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  const auth = req.header("authorization");
+  if (!cronSecret || !auth?.startsWith("Bearer ")) return false;
+  if (!safeEqual(auth.slice("Bearer ".length), cronSecret)) return false;
+  return req.method === "POST" && req.path === "/banksync/import-all";
+}
+
 export const authRouter = express.Router();
 
 authRouter.post("/login", (req, res) => {
@@ -140,6 +153,6 @@ authRouter.get("/me", (req, res) => {
 // Mounted on /api after the public routes (health, auth): everything below
 // it needs a session cookie, or the launcher token for its few routes.
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (hasValidSession(req) || hasLauncherAccess(req)) return next();
+  if (hasValidSession(req) || hasLauncherAccess(req) || hasCronAccess(req)) return next();
   res.status(401).json({ error: "Non connecté." });
 }

@@ -25,6 +25,7 @@ services:
       - PUBLIC_URL=${PUBLIC_URL:?PUBLIC_URL manquant dans .env}
       - APP_PASSWORD=${APP_PASSWORD:?APP_PASSWORD manquant dans .env}
       - LAUNCHER_TOKEN=${LAUNCHER_TOKEN:-}
+      - CRON_SECRET=${CRON_SECRET:-}
       - MAIL_ACCOUNTS=${MAIL_ACCOUNTS:-}
       - MAIL_EXCLUDE=${MAIL_EXCLUDE:-}
       - TAVILY_API_KEY=${TAVILY_API_KEY:-}
