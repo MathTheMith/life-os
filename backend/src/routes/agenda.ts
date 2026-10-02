@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { db } from "../db.js";
+import { syncAgendaTodos } from "../agendaTodoSync.js";
 
 // The user's agenda, kept by the AI: it adds events it spots in mails, in
 // the evening chat or when asked in the chat, and the user can edit them.
@@ -173,6 +174,7 @@ export function addEvent(input: EventInput): { event: AgendaEvent; created: bool
     .run(e.title, e.startAt, e.end, e.allDay ? 1 : 0, e.notes, input.source ?? "user");
   const id = Number(result.lastInsertRowid);
   setReminders(id, e.startAt, e.allDay, e.reminders);
+  syncAgendaTodos();
   return { event: getEvent(id)!, created: true };
 }
 
@@ -183,11 +185,13 @@ export function updateEvent(id: number, input: EventInput): AgendaEvent | undefi
     .run(e.title, e.startAt, e.end, e.allDay ? 1 : 0, e.notes, id);
   if (result.changes === 0) return undefined;
   setReminders(id, e.startAt, e.allDay, e.reminders);
+  syncAgendaTodos();
   return getEvent(id);
 }
 
 export function deleteEvent(id: number) {
   db.prepare("DELETE FROM agenda_events WHERE id = ?").run(id);
+  syncAgendaTodos();
 }
 
 const EVENT_COLUMNS = `e.id, e.title, e.start_at, e.end_at, e.all_day, e.notes, e.source,

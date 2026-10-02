@@ -23,6 +23,7 @@ import { actionsRouter } from "./routes/actions.js";
 import { coachRouter } from "./coach.js";
 import { uploadsDir } from "./db.js";
 import { authRouter, requireAuth } from "./auth.js";
+import { startAgendaTodoSyncScheduler } from "./agendaTodoSync.js";
 
 const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
@@ -65,4 +66,5 @@ app.listen(port, () => {
   startMailScheduler();
   startReminderScheduler();
   startDailyScheduler();
+  startAgendaTodoSyncScheduler();
 });
