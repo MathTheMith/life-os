@@ -65,6 +65,7 @@ export interface Action {
   parent_id: number | null;
   due_date: string | null;
   created_at: string;
+  offer_url: string | null;
 }
 
 const FROM_NAME = "Mathéo Vachon";
@@ -75,7 +76,9 @@ const USER_AGENT =
 const EMAIL_RE = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 
 export function getAction(id: number) {
-  return db.prepare("SELECT * FROM actions WHERE id = ?").get(id) as Action | undefined;
+  return db
+    .prepare("SELECT a.*, w.url AS offer_url FROM actions a LEFT JOIN watch_items w ON w.id = a.watch_item_id WHERE a.id = ?")
+    .get(id) as Action | undefined;
 }
 
 function today(): string {
@@ -495,9 +498,10 @@ export function updateActionDraft(id: number, fields: { mail_to?: string | null;
 export function listActions() {
   return db
     .prepare(
-      `SELECT * FROM actions WHERE status IN ('proposed', 'accepted')
-       OR (status IN ('done', 'dismissed') AND updated_at >= datetime('now', '-3 days'))
-       ORDER BY CASE status WHEN 'proposed' THEN 0 WHEN 'accepted' THEN 1 ELSE 2 END, id DESC`
+      `SELECT a.*, w.url AS offer_url FROM actions a LEFT JOIN watch_items w ON w.id = a.watch_item_id
+       WHERE a.status IN ('proposed', 'accepted')
+       OR (a.status IN ('done', 'dismissed') AND a.updated_at >= datetime('now', '-3 days'))
+       ORDER BY CASE a.status WHEN 'proposed' THEN 0 WHEN 'accepted' THEN 1 ELSE 2 END, a.id DESC`
     )
     .all() as Action[];
 }

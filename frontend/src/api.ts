@@ -669,6 +669,7 @@ export interface LifeAction {
   mail_body: string | null
   agenda_title: string | null
   agenda_start: string | null
+  offer_url: string | null
 }
 
 export const fetchActions = async () => json<LifeAction[]>(await fetch('/api/actions'), 'Erreur chargement actions')

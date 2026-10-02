@@ -131,6 +131,22 @@ function ActionItem({
       </div>
       <span className="watch-item-title">{a.title}</span>
       {a.reason && <p className="watch-item-sub">{a.reason}</p>}
+      {(a.kind === 'candidature' || a.kind === 'relance') && (
+        <p className="mail-action">
+          {a.mail_to ? (
+            <>📧 Par mail à : {a.mail_to}</>
+          ) : a.offer_url ? (
+            <>
+              🔗 Par formulaire :{' '}
+              <a href={a.offer_url} target="_blank" rel="noopener noreferrer">
+                ouvrir la page de l'offre
+              </a>
+            </>
+          ) : (
+            "📋 Par formulaire — lien introuvable, cherche l'offre sur le site de l'entreprise"
+          )}
+        </p>
+      )}
       {a.body_md && a.kind !== 'preparation' && (
         <div className="brief-content">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{a.body_md}</ReactMarkdown>
@@ -150,7 +166,6 @@ function ActionItem({
       )}
       {showMail && a.kind !== 'preparation' && (
         <div className="modal-form">
-          <p className="watch-item-sub">{a.mail_to ? `À : ${a.mail_to}` : 'Brouillon envoyé à toi-même, pour copier le texte dans le formulaire'}</p>
           <label className="field">
             <span>Objet</span>
             <input value={subject} onChange={(e) => setSubject(e.target.value)} />
