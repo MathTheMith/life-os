@@ -131,17 +131,19 @@ export const CATEGORIES = ["stage", "alternance", "emploi", "bon_plan", "eveneme
 // can render each as its own bit (company blurb, duration, tech stack,
 // mission) rather than a wall of text. null is a real, expected value for
 // duree/stack when the page just doesn't say — never invent one.
-// He never wants anything outside Europe (decided 2026-10-09) — the prompt
-// excludes it, and isOutsideEurope() below drops whatever slips through anyway.
+// He never wants anything outside Europe, nor in the UK (both decided
+// 2026-10-09) — the prompt excludes it, and isOutsideEurope() below drops
+// whatever slips through anyway.
 const EUROPE_ONLY_RULE =
-  "- JAMAIS hors d'Europe : exclus de la liste tout poste, stage ou événement situé hors d'Europe (États-Unis, Canada, Australie, Asie, " +
-  "Moyen-Orient, Amérique latine, Afrique...), même très motorsport. L'Europe au sens large est OK (UE, Royaume-Uni, Suisse, Norvège). " +
-  "Si une offre propose un site européen ET un site hors Europe, garde-la et indique le site européen dans lieu.\n";
+  "- JAMAIS hors d'Europe NI au Royaume-Uni : exclus de la liste tout poste, stage ou événement situé hors d'Europe (États-Unis, Canada, " +
+  "Australie, Asie, Moyen-Orient, Amérique latine, Afrique...) ou au Royaume-Uni (Angleterre, Écosse, Pays de Galles, Irlande du Nord), " +
+  "même très motorsport. Le reste de l'Europe est OK (UE, Suisse, Norvège). Si une offre propose un site OK ET un site exclu, garde-la et " +
+  "indique le site OK dans lieu.\n";
 
 const NON_EUROPE =
-  /(?<!\p{L})(usa|u\.s\.a?|united states|[ée]tats[- ]unis|canada|australi[ae]|nouvelle[- ]z[ée]lande|new zealand|japan|japon|chin[ae]|cor[ée]e|korea|inde|india|singapo(ur|re)|br[ée]sil|brazil|mexi(que|co)|argentin[ae]|qatar|bahre[iï]n|bahrain|arabie|saudi|[ée]mirats|uae|dubai|abu dhabi|afrique du sud|south africa|north carolina|michigan|indiana|california|texas|florida|ohio)(?!\p{L})|(?<!\p{L})(nc|mi|ca|tx|fl|in|oh)\s*(,|\)|$)/iu;
+  /(?<!\p{L})(usa|u\.s\.a?|united states|[ée]tats[- ]unis|canada|australi[ae]|nouvelle[- ]z[ée]lande|new zealand|japan|japon|chin[ae]|cor[ée]e|korea|inde|india|singapo(ur|re)|br[ée]sil|brazil|mexi(que|co)|argentin[ae]|qatar|bahre[iï]n|bahrain|arabie|saudi|[ée]mirats|uae|dubai|abu dhabi|afrique du sud|south africa|north carolina|michigan|indiana|california|texas|florida|ohio|royaume[- ]uni|united kingdom|uk|great britain|grande[- ]bretagne|angleterre|england|[ée]cosse|scotland|pays de galles|wales|enstone|silverstone|brackley|milton keynes|woking|oxford(shire)?|banbury|kidlington|buckingham|bicester|northampton(shire)?|coventry|cambridge|londres|london)(?!\p{L})|(?<!\p{L})(nc|mi|ca|tx|fl|in|oh)\s*(,|\)|$)/iu;
 const EUROPE =
-  /(?<!\p{L})(france|belgi(que|um)|allemagne|germany|royaume[- ]uni|united kingdom|uk|angleterre|england|[ée]cosse|scotland|irlande|ireland|suisse|switzerland|italie|italy|espagne|spain|portugal|pays[- ]bas|netherlands|autriche|austria|su[èe]de|sweden|norv[èe]ge|norway|danemark|denmark|finlande|finland|pologne|poland|tch[èe]qu|czech|luxembourg|monaco|europe)(?!\p{L})/iu;
+  /(?<!\p{L})(france|belgi(que|um)|allemagne|germany|irlande|ireland|suisse|switzerland|italie|italy|espagne|spain|portugal|pays[- ]bas|netherlands|autriche|austria|su[èe]de|sweden|norv[èe]ge|norway|danemark|denmark|finlande|finland|pologne|poland|tch[èe]qu|czech|luxembourg|monaco|europe)(?!\p{L})/iu;
 
 function isOutsideEurope(location: string | null): boolean {
   return !!location && NON_EUROPE.test(location) && !EUROPE.test(location);
