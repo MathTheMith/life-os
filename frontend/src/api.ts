@@ -32,6 +32,7 @@ export async function sendChat(payload: {
   messages?: ChatMessage[]
   image?: string
   imageDescription?: string
+  statusKey?: string
 }): Promise<string> {
   const res = await fetch('/api/chat', {
     method: 'POST',
@@ -44,6 +45,16 @@ export async function sendChat(payload: {
   }
   const data = await res.json()
   return data.reply as string
+}
+
+// Polled while a sendChat() with the same statusKey is in flight — lets the
+// typing indicator show what the assistant is actually doing (thinking,
+// searching the web, reading a page...) instead of a static "...".
+export async function fetchChatStatus(key: string): Promise<string | null> {
+  const res = await fetch(`/api/chat/status/${key}`)
+  if (!res.ok) return null
+  const data = await res.json()
+  return (data.status as string) ?? null
 }
 
 export interface Conversation {

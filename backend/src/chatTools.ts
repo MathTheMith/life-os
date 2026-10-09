@@ -285,6 +285,20 @@ const AGENDA_TOOLS = [
   },
 ];
 
+const COMPLETE_TODO_TOOL = {
+  type: "function",
+  function: {
+    name: "complete_todo",
+    description:
+      "Marque une tâche de la todo list comme faite (id visible via get_todos). À appeler sans demander dès que Mathéo dit avoir fait une tâche (« j'ai appelé la CAF », « c'est fait »...), même dans une discussion qui parle d'autre chose.",
+    parameters: {
+      type: "object",
+      properties: { id: { type: "number", description: "id de la tâche (champ \"id\" renvoyé par get_todos)." } },
+      required: ["id"],
+    },
+  },
+};
+
 const UPDATE_PROFILE_SECTION_TOOL = {
   type: "function",
   function: {
@@ -322,8 +336,8 @@ const UPDATE_ASSISTANT_NOTES_TOOL = {
 
 export function toolDefinitions(hasChatMemory: boolean) {
   return hasChatMemory
-    ? [...READ_TOOLS, ...AGENDA_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_CHAT_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL]
-    : [...READ_TOOLS, ...AGENDA_TOOLS, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL];
+    ? [...READ_TOOLS, ...AGENDA_TOOLS, COMPLETE_TODO_TOOL, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_CHAT_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL]
+    : [...READ_TOOLS, ...AGENDA_TOOLS, COMPLETE_TODO_TOOL, UPDATE_PROFILE_SECTION_TOOL, UPDATE_GLOBAL_MEMORY_TOOL, UPDATE_ASSISTANT_NOTES_TOOL];
 }
 
 // No LIMIT: Gemini's context window has plenty of headroom for the full
@@ -390,6 +404,13 @@ export async function executeTool(
         return JSON.stringify(db.prepare("SELECT * FROM race_logs ORDER BY date DESC, id DESC").all());
       case "get_todos":
         return JSON.stringify(db.prepare("SELECT * FROM todos ORDER BY done ASC, created_at DESC").all());
+      case "complete_todo": {
+        const id = Number(args.id);
+        const result = db
+          .prepare("UPDATE todos SET done = 1, completed_at = ? WHERE id = ? AND done = 0")
+          .run(new Date().toISOString().slice(0, 10), id);
+        return JSON.stringify(result.changes ? { ok: true } : { error: "Tâche introuvable ou déjà faite." });
+      }
       case "get_bank_connections":
         return JSON.stringify(getBankConnections());
       case "get_agenda":

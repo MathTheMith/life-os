@@ -17,6 +17,33 @@ if (!(db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[]
   db.exec("ALTER TABLE conversations ADD COLUMN question_date TEXT");
 }
 
+// Tracks the question this "Question du jour" chat is currently waiting an
+// answer for, and whether that one's been answered yet — the brief can be
+// regenerated later the same day with a new question, and this is what
+// lets POST /question tell "swap the still-unanswered one in place" apart
+// from "he already answered that, this is a genuinely new one, append it".
+if (!(db.prepare("PRAGMA table_info(conversations)").all() as { name: string }[]).some((c) => c.name === "current_question")) {
+  db.exec("ALTER TABLE conversations ADD COLUMN current_question TEXT");
+  db.exec("ALTER TABLE conversations ADD COLUMN current_question_answered INTEGER NOT NULL DEFAULT 0");
+  // Backfill from whatever's already there, so existing question-chats
+  // don't all read as "unanswered" the first time this runs (which would
+  // let a stale one get silently overwritten instead of a new question
+  // being appended). The exact backfilled text barely matters — only that
+  // "answered" reflects reality and the text won't coincidentally match a
+  // real future question.
+  for (const { id } of db.prepare("SELECT id FROM conversations WHERE kind = 'question'").all() as { id: number }[]) {
+    const lastAssistant = db
+      .prepare("SELECT content FROM conversation_messages WHERE conversation_id = ? AND role = 'assistant' ORDER BY id DESC LIMIT 1")
+      .get(id) as { content: string } | undefined;
+    const hasReply = db.prepare("SELECT 1 FROM conversation_messages WHERE conversation_id = ? AND role = 'user' LIMIT 1").get(id);
+    db.prepare("UPDATE conversations SET current_question = ?, current_question_answered = ? WHERE id = ?").run(
+      lastAssistant?.content ?? null,
+      hasReply ? 1 : 0,
+      id
+    );
+  }
+}
+
 // A protected conversation (e.g. a main, ongoing chat Mathéo wants to keep
 // around for good) can't be deleted — from this app or by mistake — unlike
 // the disposable kinds (question/evening chats) that get pruned once stale.
@@ -75,23 +102,44 @@ conversationsRouter.post("/", (req, res) => {
 conversationsRouter.post("/question", (req, res) => {
   const { question } = req.body as { question?: string };
   if (!question?.trim()) return res.status(400).json({ error: "question requise" });
+  const q = question.trim();
 
   const date = parisNow().date;
   const existing = db
-    .prepare("SELECT id, title FROM conversations WHERE kind = 'question' AND question_date = ?")
-    .get(date) as { id: number; title: string } | undefined;
-  if (existing) return res.json(existing);
+    .prepare("SELECT id, title, current_question, current_question_answered FROM conversations WHERE kind = 'question' AND question_date = ?")
+    .get(date) as { id: number; title: string; current_question: string | null; current_question_answered: number } | undefined;
+
+  if (existing) {
+    // The brief (and its question) can be regenerated later the same day.
+    // Already in sync (whether answered or not) — nothing to do.
+    if (existing.current_question !== q) {
+      if (!existing.current_question_answered) {
+        // Still waiting on the previous one — nothing lost by swapping it
+        // in place instead of asking twice.
+        db.prepare("UPDATE conversation_messages SET content = ? WHERE conversation_id = ? AND role = 'assistant' AND content = ?").run(
+          q,
+          existing.id,
+          existing.current_question
+        );
+      } else {
+        // That one's already answered and closed — this is a genuinely new
+        // question, appended so the thread keeps its history instead of
+        // reopening on an old, settled exchange.
+        db.prepare("INSERT INTO conversation_messages (conversation_id, role, content) VALUES (?, 'assistant', ?)").run(existing.id, q);
+      }
+      db.prepare("UPDATE conversations SET current_question = ?, current_question_answered = 0 WHERE id = ?").run(q, existing.id);
+    }
+    return res.json(existing);
+  }
 
   const title = "Question du jour";
   const create = db.transaction(() => {
     const id = Number(
-      db.prepare("INSERT INTO conversations (title, kind, question_date) VALUES (?, 'question', ?)").run(title, date)
-        .lastInsertRowid
+      db
+        .prepare("INSERT INTO conversations (title, kind, question_date, current_question) VALUES (?, 'question', ?, ?)")
+        .run(title, date, q).lastInsertRowid
     );
-    db.prepare("INSERT INTO conversation_messages (conversation_id, role, content) VALUES (?, 'assistant', ?)").run(
-      id,
-      question.trim()
-    );
+    db.prepare("INSERT INTO conversation_messages (conversation_id, role, content) VALUES (?, 'assistant', ?)").run(id, q);
     return id;
   });
   res.json({ id: create(), title });

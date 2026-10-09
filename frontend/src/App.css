@@ -781,9 +781,21 @@
 
 .chat-bubble--typing {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 14px 16px;
+}
+
+.typing-status {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.typing-dots {
+  display: flex;
   gap: 4px;
   align-items: center;
-  padding: 14px 16px;
 }
 
 .typing-dot {

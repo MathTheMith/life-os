@@ -39,7 +39,7 @@ function toTab(value: string | null): Tab | null {
 }
 
 function loadInitialTab(): Tab {
-  if (LAUNCH_PARAMS.has('evening')) return 'chat'
+  if (LAUNCH_PARAMS.has('evening') || LAUNCH_PARAMS.has('conversationId')) return 'chat'
   if (LAUNCH_PARAMS.get('view') === 'mails') return 'radar'
   return toTab(LAUNCH_PARAMS.get('tab')) ?? toTab(localStorage.getItem(TAB_STORAGE_KEY)) ?? 'today'
 }
@@ -69,8 +69,13 @@ function MainApp() {
   const [budgetKey, setBudgetKey] = useState(0)
   // Pages outside the dock: the profile icon's page, and the import.
   const [overlay, setOverlay] = useState<Overlay | null>(null)
-  // A conversation to open when switching to the chat (question of the day).
-  const [chatConversationId, setChatConversationId] = useState<number | undefined>(undefined)
+  // A conversation to open when switching to the chat (question of the day,
+  // or a reply notification's ?conversationId= when it was answered while
+  // the app was closed — see routes/chat.ts).
+  const [chatConversationId, setChatConversationId] = useState<number | undefined>(() => {
+    const raw = LAUNCH_PARAMS.get('conversationId')
+    return raw ? Number(raw) : undefined
+  })
   const [radarCount, setRadarCount] = useState(0)
 
   function selectTab(next: Tab) {

@@ -19,7 +19,8 @@ function isAllowedSource(ip) {
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 const PORT = 4200;
 const WORKDIR = "/root/life-os";
@@ -98,9 +99,114 @@ function askClaude(message) {
   });
 }
 
+// One-shot completion for the backend's background jobs and chat turns: a
+// fresh session every call (never the chat's resumed one, so job prompts
+// don't leak into the conversation), no tools except Read for an image.
+const COMPLETE_MAX_PARALLEL = 2;
+const IMAGE_DIR = "/root/life-os/claude-bridge/tmp";
+mkdirSync(IMAGE_DIR, { recursive: true });
+
+let running = 0;
+const queued = [];
+function withSlot(task) {
+  return new Promise((resolve, reject) => {
+    const start = () => {
+      running++;
+      task()
+        .then(resolve, reject)
+        .finally(() => {
+          running--;
+          queued.shift()?.();
+        });
+    };
+    if (running < COMPLETE_MAX_PARALLEL) start();
+    else queued.push(start);
+  });
+}
+
+function askOnce(prompt, imagePath) {
+  return new Promise((resolve, reject) => {
+    const args = [
+      "-p",
+      "--output-format",
+      "json",
+      "--no-session-persistence",
+      "--tools",
+      imagePath ? "Read" : "",
+      "--permission-prompts",
+      "none",
+      "--model",
+      "sonnet",
+    ];
+    if (imagePath) args.push("--add-dir", IMAGE_DIR);
+    const child = spawn(CLAUDE_BIN, args, { cwd: WORKDIR });
+    let stdout = "";
+    let stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error("Claude n'a pas répondu à temps (timeout)."));
+    }, TIMEOUT_MS);
+
+    child.stdout.on("data", (d) => (stdout += d));
+    child.stderr.on("data", (d) => (stderr += d));
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", () => {
+      clearTimeout(timer);
+      try {
+        const data = JSON.parse(stdout);
+        if (data.is_error) return reject(new Error(data.result || "Erreur Claude Code."));
+        resolve(data.result || "");
+      } catch {
+        reject(new Error(stderr.trim() || "Sortie illisible de Claude Code."));
+      }
+    });
+
+    const fullPrompt = imagePath
+      ? `${prompt}\n\nL'image à analyser est dans le fichier ${imagePath} : lis-le avec l'outil Read avant de répondre.`
+      : prompt;
+    child.stdin.end(fullPrompt);
+  });
+}
+
+const IMAGE_EXT = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif" };
+
+async function complete(prompt, image) {
+  let imagePath = null;
+  if (image) {
+    const match = /^data:(image\/[a-z+]+);base64,(.+)$/is.exec(image);
+    if (!match) throw new Error("Image invalide.");
+    const ext = IMAGE_EXT[match[1].toLowerCase()] ?? "jpg";
+    imagePath = path.join(IMAGE_DIR, `${randomUUID()}.${ext}`);
+    writeFileSync(imagePath, Buffer.from(match[2], "base64"));
+  }
+  try {
+    return await withSlot(() => askOnce(prompt, imagePath));
+  } finally {
+    if (imagePath) unlinkSync(imagePath);
+  }
+}
+
 const server = createServer((req, res) => {
   if (!isAllowedSource(req.socket.remoteAddress || "")) {
     res.writeHead(403).end();
+    return;
+  }
+  if (req.method === "POST" && req.url === "/complete") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", async () => {
+      try {
+        const { prompt, image } = JSON.parse(body);
+        if (!prompt || typeof prompt !== "string") throw new Error("prompt requis");
+        const content = await complete(prompt, typeof image === "string" ? image : null);
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ content }));
+      } catch (err) {
+        res.writeHead(502, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err.message }));
+      }
+    });
     return;
   }
   if (req.method !== "POST" || req.url !== "/ask") {

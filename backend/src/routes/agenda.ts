@@ -162,11 +162,37 @@ function normalize(input: EventInput) {
 // Adds an event, or returns the existing one when the same title is already
 // on the same day (the AI can spot one appointment in a mail and again in
 // the evening chat).
+const TITLE_STOPWORDS = new Set(["de", "du", "la", "le", "les", "des", "a", "au", "aux", "en", "et", "the", "of"]);
+
+function titleWords(title: string): Set<string> {
+  const words = title
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 1 && !TITLE_STOPWORDS.has(w));
+  return new Set(words);
+}
+
+// Same event under a different wording (a short name vs. a longer one from a
+// mail or chat). The shorter title's every word has to appear in the longer
+// one, and at least two words must match — so "Relancer X" and "Relancer Y"
+// never merge, and "140 ans de la Nat" doesn't merge with an unrelated
+// "140 ans du lycée…" that only shares the leading words.
+function isSameEventTitle(a: string, b: string): boolean {
+  const wa = titleWords(a);
+  const wb = titleWords(b);
+  const [small, big] = wa.size <= wb.size ? [wa, wb] : [wb, wa];
+  const shared = [...small].filter((w) => big.has(w)).length;
+  return shared >= 2 && shared === small.size;
+}
+
 export function addEvent(input: EventInput): { event: AgendaEvent; created: boolean } {
   const e = normalize(input);
-  const existing = db
-    .prepare("SELECT * FROM agenda_events WHERE lower(title) = lower(?) AND substr(start_at, 1, 10) = ?")
-    .get(e.title, e.startAt.slice(0, 10)) as AgendaEvent | undefined;
+  const sameDay = db
+    .prepare("SELECT * FROM agenda_events WHERE substr(start_at, 1, 10) = ?")
+    .all(e.startAt.slice(0, 10)) as AgendaEvent[];
+  const existing = sameDay.find((ev) => ev.title.toLowerCase() === e.title.toLowerCase() || isSameEventTitle(ev.title, e.title));
   if (existing) return { event: existing, created: false };
 
   const result = db

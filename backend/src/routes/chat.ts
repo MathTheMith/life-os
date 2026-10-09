@@ -14,8 +14,58 @@ import { getActionsForPrompt } from "../actions.js";
 import { getPhoneUsageForPrompt } from "./phone.js";
 import { toneInstructions } from "../coach.js";
 import { isClaudeTrigger, askClaudeBridge } from "../claudeBridge.js";
+import { sendPush } from "../push.js";
 
 export const chatRouter = Router();
+
+// What the assistant is doing right now, keyed by a per-request id the
+// frontend generates and polls — lets the typing indicator show "Recherche
+// sur internet…" instead of a static "...". Entries are cleaned up in the
+// request's finally block; the timestamp just guards against a leak if a
+// request ever dies without reaching it (crash, process restart).
+const chatStatus = new Map<string, { text: string; ts: number }>();
+const CHAT_STATUS_MAX_AGE_MS = 5 * 60 * 1000;
+
+function setChatStatus(key: string | undefined, text: string) {
+  if (key) chatStatus.set(key, { text, ts: Date.now() });
+}
+
+const TOOL_STATUS: Record<string, string> = {
+  search_web: "Recherche sur internet…",
+  read_web_page: "Lit une page web…",
+  get_budget_summary: "Consulte ton budget…",
+  get_transactions: "Consulte tes transactions…",
+  get_envelopes: "Consulte tes enveloppes…",
+  get_goals: "Consulte tes objectifs…",
+  get_races: "Consulte ton carnet de courses…",
+  get_todos: "Consulte ta liste de tâches…",
+  get_bank_connections: "Consulte tes comptes bancaires…",
+  get_journal: "Consulte ton journal…",
+  get_motorsport_plan: "Consulte ton plan motorsport…",
+  get_agenda: "Consulte ton agenda…",
+  add_agenda_event: "Ajoute un événement à ton agenda…",
+  update_agenda_event: "Modifie un événement de ton agenda…",
+  delete_agenda_event: "Supprime un événement de ton agenda…",
+  get_mails: "Consulte tes mails…",
+  get_mail_text: "Lit un mail…",
+  complete_todo: "Coche une tâche faite…",
+  update_profile_section: "Met à jour ton profil…",
+  update_global_memory: "Met à jour sa mémoire…",
+  update_chat_memory: "Met à jour la mémoire de cette discussion…",
+  update_assistant_notes: "Note quelque chose pour plus tard…",
+};
+function statusForTool(name: string): string {
+  return TOOL_STATUS[name] ?? "Travaille…";
+}
+
+chatRouter.get("/status/:key", (req, res) => {
+  const entry = chatStatus.get(req.params.key);
+  if (entry && Date.now() - entry.ts > CHAT_STATUS_MAX_AGE_MS) {
+    chatStatus.delete(req.params.key);
+    return res.json({ status: null });
+  }
+  res.json({ status: entry?.text ?? null });
+});
 
 const MAX_TOOL_ROUNDS = 5;
 // Generous but still bounded — a conversation shouldn't grow the request
@@ -87,13 +137,26 @@ chatRouter.post("/", async (req, res) => {
     messages: clientMessages,
     image: incomingImage,
     imageDescription: incomingImageDescription,
+    statusKey,
   } = req.body as {
     conversationId?: number;
     message?: string;
     messages?: (ChatMessage & { imageDescription?: string })[];
     image?: string; // data: URI — kept around only to persist to disk for display, never sent to the model here
     imageDescription?: string; // already computed by /describe-image before this request was sent
+    statusKey?: string; // frontend-generated id it polls GET /chat/status/:key with, for the live typing indicator
   };
+
+  // The phone can lock, lose signal, or the app can get backgrounded away
+  // mid-request — none of that aborts this handler (nothing here is tied to
+  // the connection), so the reply still gets computed and saved. What it
+  // changes is how we deliver it: if the connection is already gone by the
+  // time we're done, res.json() would just throw into the void, so instead
+  // we push a notification pointing at the (now saved) conversation.
+  let clientDisconnected = false;
+  res.on("close", () => {
+    if (!res.writableEnded) clientDisconnected = true;
+  });
 
   let conversation: { id: number; title: string; memory: string | null; kind: string } | undefined;
   let history: ChatMessage[];
@@ -204,6 +267,7 @@ chatRouter.post("/", async (req, res) => {
     let usedWebTool = false;
 
     if (userMessage && isClaudeTrigger(userMessage)) {
+      setChatStatus(statusKey, "Demande à Claude…");
       try {
         finalText = await askClaudeBridge(userMessage);
       } catch (err) {
@@ -211,6 +275,7 @@ chatRouter.post("/", async (req, res) => {
       }
     } else {
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      setChatStatus(statusKey, "Réfléchit…");
       const data = await callAiService({ messages: workingMessages, tools });
       const assistantMessage = data.choices?.[0]?.message;
       if (!assistantMessage) throw new Error("Réponse inattendue du modèle.");
@@ -219,6 +284,7 @@ chatRouter.post("/", async (req, res) => {
         workingMessages.push(assistantMessage);
         for (const call of assistantMessage.tool_calls) {
           if (call.function.name === "search_web" || call.function.name === "read_web_page") usedWebTool = true;
+          setChatStatus(statusKey, statusForTool(call.function.name));
           const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
           const result = await executeTool(call.function.name, args, conversationId ?? null);
           workingMessages.push({ role: "tool", tool_call_id: call.id, content: result });
@@ -235,8 +301,13 @@ chatRouter.post("/", async (req, res) => {
     // case most worth a second check (an invented or misread detail from a
     // page is easy, and hard to catch without rereading), and the one most
     // sessions won't hit, so this doesn't double the cost of every message.
-    if (usedWebTool) finalText = await critiqueReply(userMessage || "(message avec image, sans texte)", finalText);
+    if (usedWebTool) {
+      setChatStatus(statusKey, "Relit sa réponse…");
+      finalText = await critiqueReply(userMessage || "(message avec image, sans texte)", finalText);
     }
+    }
+
+    let savedTitle: string | undefined = conversation?.title;
 
     if (conversationId && conversation) {
       const conv = conversation;
@@ -265,14 +336,62 @@ chatRouter.post("/", async (req, res) => {
           const titleSource = finalUserMessage || "Image";
           const title = titleSource.slice(0, 48) + (titleSource.length > 48 ? "…" : "");
           db.prepare("UPDATE conversations SET title = ? WHERE id = ?").run(title, conversationId);
+          savedTitle = title;
+        }
+        // Closes out this round for POST /conversations/question — a later
+        // question the same day appends a new turn instead of overwriting
+        // this now-answered one.
+        if (conv.kind === "question") {
+          db.prepare("UPDATE conversations SET current_question_answered = 1 WHERE id = ?").run(conversationId);
         }
       });
       saveExchange();
     }
 
+    // The connection's already gone (phone locked, app closed, signal lost
+    // while the model was still working) — res.json() here would just throw
+    // into a dead socket. The reply above is already safely saved when this
+    // was a real conversation; a temporary chat has no row to lose it from,
+    // so one is created on the spot instead of discarding the exchange.
+    // Either way, a push notification is how he finds out, since he's not
+    // watching this tab anymore.
+    if (clientDisconnected) {
+      let notifyConversationId = conversationId;
+      if (!notifyConversationId) {
+        const lastUserMessage = [...history].reverse().find((m) => m.role === "user")?.content || "Discussion";
+        const title = lastUserMessage.slice(0, 48) + (lastUserMessage.length > 48 ? "…" : "");
+        const insert = db.prepare("INSERT INTO conversation_messages (conversation_id, role, content) VALUES (?, ?, ?)");
+        notifyConversationId = db.transaction(() => {
+          const id = Number(db.prepare("INSERT INTO conversations (title, kind) VALUES (?, 'normal')").run(title).lastInsertRowid);
+          for (const m of history) insert.run(id, m.role, m.content);
+          insert.run(id, "assistant", finalText);
+          return id;
+        })();
+        savedTitle = title;
+      }
+      sendPush({
+        title: savedTitle && savedTitle !== "Nouvelle conversation" ? savedTitle : "Ta question a une réponse",
+        body: finalText.slice(0, 140),
+        url: `/?tab=chat&conversationId=${notifyConversationId}`,
+        tag: `chat-${notifyConversationId}`,
+      }).catch((err) => console.error("Push réponse chat :", (err as Error).message));
+      return;
+    }
+
     res.json({ reply: finalText });
   } catch (err) {
     console.error("Erreur chat:", err);
-    res.status(502).json({ error: (err as Error).message || "Service de chat indisponible." });
+    if (clientDisconnected) {
+      sendPush({
+        title: "Life OS",
+        body: "Un problème est survenu en répondant à ta question — réessaie.",
+        url: "/?tab=chat",
+        tag: "chat-error",
+      }).catch(() => {});
+    } else {
+      res.status(502).json({ error: (err as Error).message || "Service de chat indisponible." });
+    }
+  } finally {
+    if (statusKey) chatStatus.delete(statusKey);
   }
 });

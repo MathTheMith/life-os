@@ -10,6 +10,7 @@ import {
   deleteConversation,
   openEveningChat,
   finishEveningChat,
+  fetchChatStatus,
   type ChatMessage,
   type Conversation,
 } from '../api'
@@ -61,6 +62,7 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
   const [activeChat, setActiveChat] = useState<ActiveChat>({ kind: 'temporary', messages: [] })
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [thinkingStatus, setThinkingStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showHistory, setShowHistory] = useState(false)
   const [showNewChatPicker, setShowNewChatPicker] = useState(false)
@@ -213,7 +215,18 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
     setAttachedImage(null)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     setLoading(true)
+    setThinkingStatus(null)
     setError(null)
+
+    // Polled while the request is in flight so the typing indicator can show
+    // what the assistant is actually doing (thinking, searching the web,
+    // reading a page...) instead of a static "...".
+    const statusKey = Math.random().toString(36).slice(2)
+    const statusInterval = window.setInterval(() => {
+      fetchChatStatus(statusKey)
+        .then((status) => setThinkingStatus(status))
+        .catch(() => {})
+    }, 500)
 
     try {
       const reply =
@@ -223,8 +236,9 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
               message: text,
               image: userMsg.image,
               imageDescription: userMsg.imageDescription,
+              statusKey,
             })
-          : await sendChat({ messages: nextMessages })
+          : await sendChat({ messages: nextMessages, statusKey })
 
       setActiveChat((prev) => ({ ...prev, messages: [...nextMessages, { role: 'assistant', content: reply }] }) as ActiveChat)
 
@@ -239,8 +253,19 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
           .catch(() => {})
       }
     } catch (err) {
-      setError((err as Error).message)
+      // fetch() only throws a bare TypeError for a dropped connection (phone
+      // locked, app backgrounded, signal lost) — never for an HTTP error
+      // response, which api.ts always wraps in a real Error with a message.
+      // The backend keeps working either way and notifies him once the
+      // reply is ready (see routes/chat.ts), so this isn't actually lost.
+      setError(
+        err instanceof TypeError
+          ? 'Connexion perdue — pas de souci, la question est en cours, tu seras notifié quand la réponse sera prête.'
+          : (err as Error).message,
+      )
     } finally {
+      window.clearInterval(statusInterval)
+      setThinkingStatus(null)
       setLoading(false)
     }
   }
@@ -280,9 +305,12 @@ export function Chat({ openEvening = false, openConversationId }: { openEvening?
         ))}
         {loading && (
           <div className="chat-bubble chat-bubble--assistant chat-bubble--typing">
-            <span className="typing-dot" />
-            <span className="typing-dot" />
-            <span className="typing-dot" />
+            {thinkingStatus && <span className="typing-status">{thinkingStatus}</span>}
+            <span className="typing-dots">
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+              <span className="typing-dot" />
+            </span>
           </div>
         )}
       </div>
