@@ -170,7 +170,14 @@ async function importConnection(connectionId: number): Promise<number> {
   let imported = 0;
 
   for (const account of accounts) {
-    const dateFrom = (account.last_synced_at || connection.created_at).slice(0, 10);
+    // Banks often post a transaction a few days late but dated when it
+    // happened (a card payment on the 7th showing up on the 9th, dated the
+    // 7th). Starting exactly at the last sync day would skip those for good,
+    // so every run re-reads a 10-day overlap; already-imported rows are
+    // ignored thanks to the unique index on external_id.
+    const since = new Date(`${(account.last_synced_at || connection.created_at).slice(0, 10)}T00:00:00Z`);
+    since.setUTCDate(since.getUTCDate() - 10);
+    const dateFrom = since.toISOString().slice(0, 10);
     const rawTransactions = await fetchTransactions(account.uid, { dateFrom, dateTo: today });
     const mapped = rawTransactions.map((tx) => mapTransaction(tx, ownIbans)).filter((m) => m !== null);
 
