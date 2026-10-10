@@ -1,7 +1,5 @@
 import { db } from "./db.js";
-
-const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:4000";
-const internalSecret = process.env.INTERNAL_SECRET;
+import { callAiService } from "./aiClient.js";
 
 // Fixed palette (categoryStyle.ts on the frontend) plus whatever's been
 // learned since — the model picks from this closed set instead of
@@ -60,26 +58,14 @@ export async function categorizeBatchWithAI(items: UncategorizedItem[]): Promise
       .join("\n");
 
   try {
-    const res = await fetch(`${aiServiceUrl}/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(internalSecret ? { "x-internal-secret": internalSecret } : {}),
-      },
-      body: JSON.stringify({
-        messages: [{ role: "user", content: prompt }],
-        reasoning_effort: "low",
-        // Gemini's reasoning tokens are billed out of this same budget and
-        // eat a chunk of it before any visible output — 1024 was cutting
-        // the JSON array off mid-string on a full batch (~30 items) and
-        // silently sending everything in it to "autre". A single import run
-        // rarely has more than a handful of uncategorized rows, so this is
-        // still cheap in practice.
-        max_completion_tokens: 4096,
-      }),
+    // Goes through the shared client so it follows AI_PROVIDER like every
+    // other AI call (it used to hit ai-service directly and kept failing on
+    // Gemini once that account ran out of credits).
+    const data = await callAiService({
+      messages: [{ role: "user", content: prompt }],
+      reasoning_effort: "low",
+      max_completion_tokens: 4096,
     });
-    const data = (await res.json()) as any;
-    if (!res.ok) throw new Error(JSON.stringify(data));
 
     const text: string = data.choices?.[0]?.message?.content ?? "";
     const match = text.match(/\[[\s\S]*\]/);
