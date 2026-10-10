@@ -97,3 +97,14 @@ pushRouter.post("/test", async (_req, res) => {
   });
   res.json({ delivered });
 });
+
+// Server alerts from the host watchdog (service down, disk full, stale
+// backup...). One tag per check, so a recovery replaces its own alert.
+pushRouter.post("/alert", async (req, res) => {
+  const { title, body, tag } = req.body ?? {};
+  if (typeof title !== "string" || typeof body !== "string") {
+    return res.status(400).json({ error: "title et body requis." });
+  }
+  const delivered = await sendPush({ title, body, url: "/", tag: `alert-${String(tag ?? "server")}` });
+  res.json({ delivered });
+});

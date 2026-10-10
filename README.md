@@ -56,6 +56,8 @@ Le script reconstruit et relance le backend, rebuild le frontend dans `/var/www/
 | 03:30 | `scripts/backup.sh` : snapshot SQLite + copie des uploads dans `/root/life-os-backups`, 14 jours gardés |
 | 03:45 | `scripts/offsite-backup.sh` : chiffre le dernier snapshot avec `age` et le pousse sur le repo privé `MathTheMith/life-os-backups` (7 archives) |
 
+| toutes les 5 min | `scripts/watchdog.sh` : vérifie Life OS, le Tennis, le pont Claude, le disque, les sauvegardes et les certificats. Alerte en push (ou par mail si Life OS est tombé) après 2 échecs, puis quand c'est rétabli. |
+
 Les logs sont dans `/var/log/life-os/`.
 
 ## Restaurer une sauvegarde

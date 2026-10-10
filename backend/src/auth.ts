@@ -83,17 +83,17 @@ function hasLauncherAccess(req: Request): boolean {
   return LAUNCHER_ROUTES.some((r) => r.method === req.method && r.pattern.test(req.path));
 }
 
-// The host crontab hits this one route unattended to pull in new bank
-// transactions without anyone ever opening the app. A dedicated secret
-// (not LAUNCHER_TOKEN — that one's deliberately kept away from bank data,
-// see above) scoped to just this route, so a leaked cron secret still
-// can't reach anything else.
+// The host crontab hits these routes unattended: the bank import, and the
+// watchdog's alerts (scripts/watchdog.sh). A dedicated secret (not
+// LAUNCHER_TOKEN — that one's deliberately kept away from bank data, see
+// above) scoped to just these routes, so a leaked cron secret still can't
+// reach anything else.
 function hasCronAccess(req: Request): boolean {
   const cronSecret = process.env.CRON_SECRET;
   const auth = req.header("authorization");
   if (!cronSecret || !auth?.startsWith("Bearer ")) return false;
   if (!safeEqual(auth.slice("Bearer ".length), cronSecret)) return false;
-  return req.method === "POST" && req.path === "/banksync/import-all";
+  return req.method === "POST" && (req.path === "/banksync/import-all" || req.path === "/push/alert");
 }
 
 export const authRouter = express.Router();
