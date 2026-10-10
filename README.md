@@ -24,12 +24,11 @@ nginx (hôte, TLS)
 
 backend (Express + TypeScript, SQLite dans le volume life-os-data)
 ├── → claude-bridge  172.28.1.1:4200      service systemd sur l'hôte, appelle le CLI `claude` (Sonnet)
-├── → ai-service     réseau docker interne Gemini, seulement si AI_PROVIDER=gemini
 ├── → Enable Banking                      synchro bancaire (PSD2)
 └── → IMAP Gmail                          lecture seule, IDLE + passage toutes les 30 min
 ```
 
-- **IA** : `AI_PROVIDER` vaut `claude` par défaut. Tous les appels passent par `backend/src/aiClient.ts` (`callAiService`), qui les envoie au pont Claude. `ai-service` (Gemini) ne sert plus que de solution de repli, son compte n'a plus de crédits.
+- **IA** : tous les appels passent par `backend/src/aiClient.ts` (`callAiService`), qui les envoie au pont Claude. L'ancien conteneur `ai-service` (Gemini) a été supprimé le 2026-10-10.
 - **claude-bridge** (`claude-bridge/server.mjs`) tourne sur l'hôte car il a besoin du CLI `claude` déjà connecté. `/ask` sert au chat (session persistante, outils Read/Grep/Glob/WebSearch/WebFetch, 0,50 $ max par appel). `/complete` sert aux tâches de fond, sans outils. Installation : `claude-bridge/setup.sh`.
 - **Tâches planifiées** dans le backend (heure de Paris) : veille 7h et 18h, actions avant le brief, brief 9h, rappel du soir 21h30 sans journal, rappels toutes les minutes.
 - **Accès** : connexion par `APP_PASSWORD`. `LAUNCHER_TOKEN` donne au widget du launcher un accès limité à ses propres routes.
@@ -38,7 +37,7 @@ backend (Express + TypeScript, SQLite dans le volume life-os-data)
 
 - `backend/src/` : un fichier par fonction (`brief.ts`, `watch.ts`, `mail.ts`, `actions.ts`, `coach.ts`, `reminders.ts`, `push.ts`...) et les routes dans `routes/`.
 - `frontend/src/` : PWA React.
-- `.env` (non versionné) : `APP_PASSWORD`, `INTERNAL_SECRET`, `PUBLIC_URL`, `CRON_SECRET`, `MAIL_ACCOUNTS`, `ENABLEBANKING_APP_ID`, `GEMINI_API_KEY`, etc. La clé privée Enable Banking est dans `secrets/enablebanking/`.
+- `.env` (non versionné) : `APP_PASSWORD`, `PUBLIC_URL`, `CRON_SECRET`, `MAIL_ACCOUNTS`, `ENABLEBANKING_APP_ID`, etc. La clé privée Enable Banking est dans `secrets/enablebanking/`.
 - Les CV et lettres de `/root/motorsport_internship/candidatures` sont montés en lecture seule pour les brouillons de candidature.
 
 ## Déployer

@@ -1,28 +1,7 @@
-// Shared client for the ai-service container (the only place holding the
-// model API key). Used by the chat, and by any background job that needs
-// the model (profile drafts, brief, watch).
+// Shared client for every model call (chat, brief, watch, mail triage,
+// categorization...). Everything goes to the Claude bridge running on the
+// host (see claude-bridge/server.mjs).
 
-const aiServiceUrl = process.env.AI_SERVICE_URL || "http://localhost:4000";
-const internalSecret = process.env.INTERNAL_SECRET;
-
-// Gemini's OpenAI-compat layer sometimes wraps errors in an array
-// ([{ error: {...} }]) instead of a plain object ({ error: {...} }) — handle
-// both shapes rather than silently falling back to a useless generic message.
-function extractErrorMessage(data: any): string | undefined {
-  const errorObj = Array.isArray(data) ? data[0]?.error : data?.error;
-  return typeof errorObj === "string" ? errorObj : errorObj?.message;
-}
-
-// 429 (per-minute quota) names the exact remaining wait ("Please try again
-// in 5.8875s") when the provider is Groq; 503 (Gemini's transient "model
-// overloaded") doesn't, so this just falls back to a short fixed wait.
-function parseRetryAfterMs(message: string): number {
-  const match = message.match(/try again in ([\d.]+)s/i);
-  const seconds = match ? Number.parseFloat(match[1]) : 3;
-  return Math.ceil(seconds * 1000) + 500;
-}
-
-const AI_PROVIDER = process.env.AI_PROVIDER || "claude";
 const claudeCompleteUrl = (process.env.CLAUDE_BRIDGE_URL || "http://172.28.1.1:4200/ask").replace(/\/ask$/, "/complete");
 const CLAUDE_TIMEOUT_MS = 160_000;
 
@@ -135,32 +114,8 @@ async function callClaude(body: { messages?: any[]; tools?: any[] }): Promise<an
   return { choices: [{ message: { role: "assistant", content } }] };
 }
 
-export async function callAiService(body: any, attempt = 0): Promise<any> {
-  if (AI_PROVIDER === "claude") return callClaude(body);
-  return callGemini(body, attempt);
-}
-
-async function callGemini(body: unknown, attempt = 0): Promise<any> {
-  const response = await fetch(`${aiServiceUrl}/chat`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(internalSecret ? { "x-internal-secret": internalSecret } : {}),
-    },
-    body: JSON.stringify(body),
-  });
-  const data = await response.json();
-
-  const isRetryable = response.status === 429 || response.status === 503;
-  if (isRetryable && attempt < 2) {
-    await new Promise((resolve) => setTimeout(resolve, parseRetryAfterMs(extractErrorMessage(data) || "")));
-    return callGemini(body, attempt + 1);
-  }
-
-  if (!response.ok) {
-    throw new Error(extractErrorMessage(data) || `ai-service a répondu ${response.status}`);
-  }
-  return data;
+export async function callAiService(body: any): Promise<any> {
+  return callClaude(body);
 }
 
 const NAMED_ENTITIES: Record<string, string> = {

@@ -1,27 +1,9 @@
 services:
-  ai-service:
-    build: ./ai-service
-    restart: unless-stopped
-    environment:
-      - GEMINI_API_KEY=${GEMINI_API_KEY:?GEMINI_API_KEY manquant dans .env}
-      - INTERNAL_SECRET=${INTERNAL_SECRET:?INTERNAL_SECRET manquant dans .env}
-      - PORT=4000
-    # Pas de "ports:" ici volontairement : ce service n'est joignable que
-    # depuis le réseau docker interne (par le backend), jamais depuis
-    # l'hôte ou l'extérieur. Il concentre tout le code qui parle à l'API
-    # du modèle (Gemini) et détient la seule clé API du projet.
-    expose:
-      - "4000"
-
   backend:
     build: ./backend
     restart: unless-stopped
-    depends_on:
-      - ai-service
     environment:
       - PORT=3001
-      - AI_SERVICE_URL=http://ai-service:4000
-      - INTERNAL_SECRET=${INTERNAL_SECRET:?INTERNAL_SECRET manquant dans .env}
       - PUBLIC_URL=${PUBLIC_URL:?PUBLIC_URL manquant dans .env}
       - APP_PASSWORD=${APP_PASSWORD:?APP_PASSWORD manquant dans .env}
       - LAUNCHER_TOKEN=${LAUNCHER_TOKEN:-}

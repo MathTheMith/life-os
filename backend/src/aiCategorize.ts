@@ -58,9 +58,6 @@ export async function categorizeBatchWithAI(items: UncategorizedItem[]): Promise
       .join("\n");
 
   try {
-    // Goes through the shared client so it follows AI_PROVIDER like every
-    // other AI call (it used to hit ai-service directly and kept failing on
-    // Gemini once that account ran out of credits).
     const data = await callAiService({
       messages: [{ role: "user", content: prompt }],
       reasoning_effort: "low",

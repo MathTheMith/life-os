@@ -12,8 +12,8 @@ const MAX_PAGE_CHARS = 6000;
 const FETCH_TIMEOUT_MS = 10_000;
 
 // Blocks the obvious ways a page's content could trick the model into
-// making this server fetch its own internal services (bank sync, ai-service,
-// ...) — not watertight against DNS rebinding, but this app has no other
+// making this server fetch its own internal services (bank sync, the
+// Claude bridge...) — not watertight against DNS rebinding, but this app has no other
 // network-level boundary either, so it matches its existing posture rather
 // than pretending to be a hardened fetcher.
 const BLOCKED_HOSTS = /^(localhost|127\.|0\.0\.0\.0|::1|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|169\.254\.)/i;
