@@ -1,9 +1,10 @@
 #!/bin/bash
 # Nightly off-server copy of Life OS's data, run after scripts/backup.sh.
 # Takes the latest local SQLite snapshot plus the uploads mirror, encrypts
-# them with age for a public key only (the private key is NOT on this server,
-# so a stolen GitHub token or repo can't read anything), and pushes the
-# result to the private repo MathTheMith/life-os-backups.
+# them with age for a public key, and pushes the result to the private repo
+# MathTheMith/life-os-backups. The matching private key sits in that repo only
+# as backup-key.age, locked with a passphrase that never touches this server,
+# so a stolen GitHub token or repo can't read anything.
 # The repo keeps the last 7 archives in a single commit (history is squashed
 # on every run), so it never grows past a few MB.
 set -euo pipefail
@@ -33,10 +34,14 @@ cat > README.md <<'EOF'
 # Life OS backups (encrypted)
 
 Each `life-os-<date>.tar.age` holds the SQLite database and the uploads
-folder, encrypted with [age](https://age-encryption.org). The private key is
-kept off the server. To restore:
+folder, encrypted with [age](https://age-encryption.org).
 
+The decryption key is `backup-key.age`, itself locked with a passphrase that
+only Mathéo knows. To restore:
+
+    age -d -o life-os-backup-key.txt backup-key.age      # asks the passphrase
     age -d -i life-os-backup-key.txt life-os-<date>.tar.age | tar -xf -
+    rm life-os-backup-key.txt
 EOF
 
 # One commit holding the current files, force-pushed: old archives don't
