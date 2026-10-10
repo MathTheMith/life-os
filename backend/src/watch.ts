@@ -292,6 +292,31 @@ function inheritedStatus(company: string | null, category: string): string | nul
   return rows.find((r) => r.company && normalizeCompany(r.company) === target)?.status ?? null;
 }
 
+// The same posting often turns up under several URLs (a careers portal, a
+// job board, a search result), and the URL is the dedup key — so the same
+// Hyundai role appeared three times. For job categories, a posting with the
+// same normalized title at the same company counts as the one already saved.
+const normalizeTitle = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\((?:h|f|m|w|d|n|x)(?:\s*\/\s*(?:h|f|m|w|d|n|x))+\)|\b(?:h|f|m|w|d|n|x)(?:\s*\/\s*(?:h|f|m|w|d|n|x))+\b/g, "")
+    .replace(/[^a-z0-9]/g, "");
+
+function samePosting(category: string, title: string, company: string | null): { id: number } | undefined {
+  if (!company || !["stage", "alternance", "emploi"].includes(category)) return undefined;
+  const t = normalizeTitle(title);
+  const c = normalizeCompany(company);
+  if (!t || !c) return undefined;
+  const rows = db
+    .prepare("SELECT id, title, company FROM watch_items WHERE category IN ('stage', 'alternance', 'emploi') AND company IS NOT NULL")
+    .all() as { id: number; title: string; company: string }[];
+  return rows.find((r) => {
+    const rc = normalizeCompany(r.company);
+    return normalizeTitle(r.title) === t && rc.length > 0 && (rc.includes(c) || c.includes(rc));
+  });
+}
+
 // sourceId is null for a search-discovered item (watch_queries has no FK
 // of its own — these aren't tied to one page the way a source is, dedup
 // below falls back to the label + title + company instead).
@@ -327,7 +352,7 @@ function saveItems(sourceId: number | null, sourceLabel: string, items: Extracte
     const stack = item.stack ?? null;
     const mission = item.mission ?? null;
     const key = url ?? `${sourceLabel}|${title}|${company ?? ""}`.toLowerCase();
-    const existing = findExisting.get(key) as { id: number } | undefined;
+    const existing = (findExisting.get(key) as { id: number } | undefined) ?? samePosting(category, title, company);
     if (existing) {
       update.run(category, title, company, location, score, reason, companyDesc, duration, stack, mission, existing.id);
       continue;
