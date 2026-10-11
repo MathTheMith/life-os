@@ -96,6 +96,16 @@ function hasCronAccess(req: Request): boolean {
   return req.method === "POST" && (req.path === "/banksync/import-all" || req.path === "/push/alert");
 }
 
+// acc-telemetry on the PC running ACC pushes finished laps here. Its own
+// token, scoped to that single write route: it can't read anything.
+function hasTelemetryAccess(req: Request): boolean {
+  const telemetryToken = process.env.TELEMETRY_TOKEN;
+  const auth = req.header("authorization");
+  if (!telemetryToken || !auth?.startsWith("Bearer ")) return false;
+  if (!safeEqual(auth.slice("Bearer ".length), telemetryToken)) return false;
+  return req.method === "POST" && req.path === "/sim-laps";
+}
+
 export const authRouter = express.Router();
 
 authRouter.post("/login", (req, res) => {
@@ -155,8 +165,8 @@ authRouter.get("/me", (req, res) => {
 });
 
 // Mounted on /api after the public routes (health, auth): everything below
-// it needs a session cookie, or the launcher token for its few routes.
+// it needs a session cookie, or one of the scoped tokens for its few routes.
 export function requireAuth(req: Request, res: Response, next: NextFunction) {
-  if (hasValidSession(req) || hasLauncherAccess(req) || hasCronAccess(req)) return next();
+  if (hasValidSession(req) || hasLauncherAccess(req) || hasCronAccess(req) || hasTelemetryAccess(req)) return next();
   res.status(401).json({ error: "Non connecté." });
 }

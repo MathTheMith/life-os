@@ -10,6 +10,7 @@ import { listJournal } from "./routes/journal.js";
 import { addEvent, updateEvent, deleteEvent, listAgenda } from "./routes/agenda.js";
 import { listMails, getMailText } from "./mail.js";
 import { fetchPageText, searchWeb } from "./web.js";
+import { getSimLapsSummary } from "./routes/simLaps.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -77,6 +78,22 @@ const READ_TOOLS = [
       name: "get_races",
       description: "Carnet de performance : courses, qualifs, chronos, positions.",
       parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_sim_laps",
+      description:
+        "Tours de sim racing (Assetto Corsa Competizione) enregistrés automatiquement : par circuit + voiture, meilleur temps valide, médiane des 10 derniers tours valides, écart médiane/meilleur (régularité), nombre de tours invalides (erreur, limites de piste : le temps ne compte pas), et les 40 derniers tours dans l'ordre. Noms de circuit/voiture au format ACC (ex. monza, spa, ferrari_296_gt3).",
+      parameters: {
+        type: "object",
+        properties: {
+          track: { type: ["string", "null"], description: "Filtre circuit (morceau du nom, ex. \"monza\"), ou null pour tous." },
+          car: { type: ["string", "null"], description: "Filtre voiture (morceau du nom), ou null pour toutes." },
+          days: { type: "number", description: "Nombre de jours à remonter (défaut 90)." },
+        },
+      },
     },
   },
   {
@@ -402,6 +419,14 @@ export async function executeTool(
         return JSON.stringify(listGoalsWithStats());
       case "get_races":
         return JSON.stringify(db.prepare("SELECT * FROM race_logs ORDER BY date DESC, id DESC").all());
+      case "get_sim_laps":
+        return JSON.stringify(
+          getSimLapsSummary({
+            track: (args.track as string) || undefined,
+            car: (args.car as string) || undefined,
+            days: args.days as number | undefined,
+          })
+        );
       case "get_todos":
         return JSON.stringify(db.prepare("SELECT * FROM todos ORDER BY done ASC, created_at DESC").all());
       case "complete_todo": {

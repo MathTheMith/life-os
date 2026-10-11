@@ -38,6 +38,7 @@ const TOOL_STATUS: Record<string, string> = {
   get_envelopes: "Consulte tes enveloppes…",
   get_goals: "Consulte tes objectifs…",
   get_races: "Consulte ton carnet de courses…",
+  get_sim_laps: "Consulte tes tours de sim racing…",
   get_todos: "Consulte ta liste de tâches…",
   get_bank_connections: "Consulte tes comptes bancaires…",
   get_journal: "Consulte ton journal…",

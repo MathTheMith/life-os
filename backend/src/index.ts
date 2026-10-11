@@ -22,6 +22,7 @@ import { startReminderScheduler } from "./reminders.js";
 import { briefRouter, startDailyScheduler } from "./brief.js";
 import { actionsRouter } from "./routes/actions.js";
 import { coachRouter } from "./coach.js";
+import { simLapsRouter } from "./routes/simLaps.js";
 import { uploadsDir } from "./db.js";
 import { authRouter, requireAuth } from "./auth.js";
 import { startAgendaTodoSyncScheduler } from "./agendaTodoSync.js";
@@ -63,6 +64,7 @@ app.use("/api/push", pushRouter);
 app.use("/api/brief", briefRouter);
 app.use("/api/actions", actionsRouter);
 app.use("/api/coach", coachRouter);
+app.use("/api/sim-laps", simLapsRouter);
 
 app.listen(port, () => {
   console.log(`life-os backend listening on http://localhost:${port}`);

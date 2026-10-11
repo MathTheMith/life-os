@@ -31,7 +31,7 @@ backend (Express + TypeScript, SQLite dans le volume life-os-data)
 - **IA** : tous les appels passent par `backend/src/aiClient.ts` (`callAiService`), qui les envoie au pont Claude. L'ancien conteneur `ai-service` (Gemini) a été supprimé le 2026-10-10.
 - **claude-bridge** (`claude-bridge/server.mjs`) tourne sur l'hôte car il a besoin du CLI `claude` déjà connecté. `/ask` sert au chat (session persistante, outils Read/Grep/Glob/WebSearch, 0,50 $ max par appel). WebFetch est volontairement absent, et la lecture de `.env`, `secrets/` et du fichier de session est interdite (`--disallowed-tools`) : le contexte du chat contient des mails et des pages web, une injection de prompt ne doit pas pouvoir lire un secret ni l'envoyer dehors. `/complete` sert aux tâches de fond, sans outils. Installation : `claude-bridge/setup.sh`.
 - **Tâches planifiées** dans le backend (heure de Paris) : veille 7h et 18h, actions avant le brief, brief 9h, rappel du soir 21h30 sans journal, rappels toutes les minutes.
-- **Accès** : connexion par `APP_PASSWORD`. `PUBLIC_URL` (https://os.replayto.com) sert d'URL de retour à Enable Banking, elle doit être déclarée dans leur console. `LAUNCHER_TOKEN` donne au widget du launcher un accès limité à ses propres routes.
+- **Accès** : connexion par `APP_PASSWORD`. `PUBLIC_URL` (https://os.replayto.com) sert d'URL de retour à Enable Banking, elle doit être déclarée dans leur console. `LAUNCHER_TOKEN` donne au widget du launcher un accès limité à ses propres routes. `TELEMETRY_TOKEN` permet seulement à acc-telemetry (PC qui fait tourner ACC) d'envoyer ses tours de sim racing (`POST /api/sim-laps` : circuit, voiture, temps, valide ou non), que le chat lit avec l'outil `get_sim_laps`.
 
 ## Fichiers importants
 
