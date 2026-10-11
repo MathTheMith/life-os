@@ -8,7 +8,7 @@ import { getWatchForPrompt } from "./watch.js";
 import { sendPush } from "./push.js";
 import { getState, setState, parisNow } from "./state.js";
 import { generateMorningActions, getActionsForPrompt } from "./actions.js";
-import { toneInstructions, adjustCoach } from "./coach.js";
+import { toneInstructions } from "./coach.js";
 import { listEnvelopesWithSummary } from "./routes/envelope.js";
 import { getBudgetSummary } from "./routes/budget.js";
 import { deleteConversationById } from "./routes/conversations.js";
@@ -221,10 +221,6 @@ async function tick() {
     const now = parisNow();
     if (now.hour >= BRIEF_HOUR && now.hour < BRIEF_LAST_HOUR && getState("brief_last_date") !== now.date) {
       setState("brief_last_date", now.date);
-      const yesterday = addDays(now.date, -1);
-      if (db.prepare("SELECT 1 FROM briefs WHERE date = ?").get(yesterday) && !eveningJournalDone(yesterday)) {
-        adjustCoach(yesterday, -1, "Pas de chat du soir hier, pas de bilan");
-      }
       // The day's actions first, so the brief can mention them.
       await generateMorningActions().catch((err) => console.error("Actions :", err));
       await runBrief(now.date).catch((err) => console.error("Brief :", err));

@@ -2404,6 +2404,22 @@ a.watch-item-title:hover {
   padding-left: 18px;
 }
 
+.health-warning {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 184, 76, 0.4);
+  background: rgba(255, 184, 76, 0.08);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+}
+
+.health-warning p {
+  margin: 0;
+}
+
 /* ---------- Coach ---------- */
 
 .coach-line {

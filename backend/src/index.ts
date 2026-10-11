@@ -25,6 +25,7 @@ import { coachRouter } from "./coach.js";
 import { uploadsDir } from "./db.js";
 import { authRouter, requireAuth } from "./auth.js";
 import { startAgendaTodoSyncScheduler } from "./agendaTodoSync.js";
+import { systemRouter } from "./routes/system.js";
 
 const app = express();
 const port = process.env.PORT ? Number(process.env.PORT) : 3001;
@@ -43,6 +44,7 @@ app.use("/api", requireAuth);
 // Images attached to chat messages, served back for display in the app.
 app.use("/api/uploads", express.static(uploadsDir));
 app.use("/api/chat", chatRouter);
+app.use("/api/system", systemRouter);
 app.use("/api/transactions", transactionsRouter);
 app.use("/api/budget", budgetRouter);
 app.use("/api/envelope", envelopeRouter);

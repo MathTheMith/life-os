@@ -720,3 +720,12 @@ export interface CoachMood {
 }
 
 export const fetchCoach = async () => json<CoachMood>(await fetch('/api/coach'), 'Erreur')
+
+export interface SystemHealth {
+  brief: { lastAt: string | null; stale: boolean }
+  watch: { lastAt: string | null; stale: boolean }
+  mail: { lastAt: string | null; stale: boolean }
+  mailErrors: { account: string; message: string }[]
+}
+
+export const fetchSystemHealth = async () => json<SystemHealth>(await fetch('/api/system/health'), 'Erreur')

@@ -16,11 +16,13 @@ import {
   deleteTodo,
   fetchAgenda,
   fetchCoach,
+  fetchSystemHealth,
   type CoachMood,
   type Brief,
   type Goal,
   type Todo,
   type AgendaEvent,
+  type SystemHealth,
 } from '../api'
 import { NotificationsCard } from './Planning'
 import { ActionsCard } from './Actions'
@@ -48,6 +50,7 @@ export function TodayPage({
   return (
     <div className="planning-page">
       <NotificationsCard hideWhenEnabled />
+      <HealthWarning />
       <CoachLine />
       <BriefCard brief={brief} onChange={setBrief} />
       {brief?.question && <QuestionCard question={brief.question} onAnswer={onAnswer} />}
@@ -117,6 +120,47 @@ function BriefCard({ brief, onChange }: { brief: Brief | null | undefined; onCha
       {error && <div className="error">{error}</div>}
     </div>
   )
+}
+
+const JOB_LABEL: Record<'brief' | 'watch' | 'mail', string> = {
+  brief: 'Le brief du matin',
+  watch: 'La veille',
+  mail: 'Le tri des mails',
+}
+
+// Scheduled jobs (brief, veille, tri des mails) run unattended and used to
+// fail silently (a console.error nobody sees) — this surfaces it instead,
+// but only when something's actually stale, same as every other card here.
+function HealthWarning() {
+  const [health, setHealth] = useState<SystemHealth | null>(null)
+
+  useEffect(() => {
+    fetchSystemHealth()
+      .then(setHealth)
+      .catch(() => setHealth(null))
+  }, [])
+
+  if (!health) return null
+  const staleJobs = (['brief', 'watch', 'mail'] as const).filter((job) => health[job].stale)
+  if (staleJobs.length === 0 && health.mailErrors.length === 0) return null
+
+  return (
+    <div className="health-warning">
+      {staleJobs.map((job) => (
+        <p key={job}>
+          ⚠️ {JOB_LABEL[job]} n'a pas tourné depuis {health[job].lastAt ? formatDate(health[job].lastAt!) : "jamais"}.
+        </p>
+      ))}
+      {health.mailErrors.map((e) => (
+        <p key={e.account}>⚠️ Mail {e.account} : {e.message}</p>
+      ))}
+    </div>
+  )
+}
+
+const HEALTH_DATE = new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+function formatDate(iso: string): string {
+  return HEALTH_DATE.format(new Date(iso))
 }
 
 // How happy the coach is with you, moved by the evening reviews.

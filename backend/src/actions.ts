@@ -207,6 +207,32 @@ interface WatchItemRow {
   status: string;
 }
 
+// A second, independent look at the live page right before drafting —
+// catches what the original triage missed or what changed since (closed
+// posting, a blocking requirement, an expired deadline). Conservative on
+// purpose: only blocks on an explicit, factual disqualifier actually on the
+// page, never a vague impression — missing a genuinely good offer is worse
+// than drafting one extra bad one.
+async function verifyStillGoodMatch(item: WatchItemRow, offerText: string): Promise<{ ok: boolean; reason?: string }> {
+  if (!offerText) return { ok: true };
+  try {
+    const parsed = await aiJson(
+      "Tu vérifies une offre juste avant que l'app prépare la candidature de Mathéo pour elle. Réponds uniquement avec un objet JSON " +
+        '{"ok": true, "raison": null} ou {"ok": false, "raison": "1 phrase factuelle, précise, citant le critère exact de la page"}.\n' +
+        "Mets ok=false UNIQUEMENT si la page affiche un critère explicite et bloquant qu'il ne remplit clairement pas : " +
+        "expérience minimum largement hors de portée (ex : 5 ans+ demandés), poste fermé/pourvu/expiré, refus explicite de sponsoring de visa alors qu'il en aurait besoin, " +
+        "type de contrat incompatible (ex : full-time alors qu'il cherche un stage/une alternance). " +
+        "En cas de doute, d'info manquante, ou de critère juste souhaitable (pas obligatoire), mets ok=true : ce n'est pas à toi de l'écarter sur une impression.\n\n" +
+        `## Offre\n${item.title}${item.company ? ` chez ${item.company}` : ""}\n\n## Texte actuel de la page\n${offerText}\n\n## Profil\n${getProfileForPrompt()}`
+    );
+    return { ok: parsed.ok !== false, reason: typeof parsed.raison === "string" ? parsed.raison : undefined };
+  } catch (err) {
+    // A failed check must never silently block a real opportunity.
+    console.error("Vérification candidature :", (err as Error).message);
+    return { ok: true };
+  }
+}
+
 export async function prepareCandidature(itemId: number, urgent: boolean): Promise<Action | undefined> {
   const existing = db
     .prepare("SELECT id FROM actions WHERE watch_item_id = ? AND kind = 'candidature' AND status != 'dismissed'")
@@ -218,6 +244,20 @@ export async function prepareCandidature(itemId: number, urgent: boolean): Promi
 
   const letter = letterFor(item.company);
   const offer = await offerPageText(item.url);
+
+  const check = await verifyStillGoodMatch(item, offer);
+  if (!check.ok) {
+    const reason = check.reason ?? "Ne correspond plus à ton profil (détecté juste avant la candidature).";
+    db.prepare("UPDATE watch_items SET status = 'seen', reason = ? WHERE id = ?").run(reason, itemId);
+    await sendPush({
+      title: "⚠️ Offre écartée",
+      body: `${item.title}${item.company ? ` chez ${item.company}` : ""} : ${reason}`,
+      url: "/?tab=radar",
+      tag: `watch-${itemId}`,
+    });
+    return undefined;
+  }
+
   const parsed = await aiJson(
     "Prépare la candidature de Mathéo pour cette offre. Réponds uniquement avec un objet JSON :\n" +
       '{"titre": "Candidature : poste, entreprise — court, le vrai titre du poste, jamais le titre brut d\'une page web ou d\'un article", ' +
