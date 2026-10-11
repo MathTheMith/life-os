@@ -35,8 +35,11 @@ const MAX_BUDGET_USD = "0.50";
 const TIMEOUT_MS = 150_000;
 // Read-only + search only, on purpose: this is for code questions and
 // research, not for letting a casual chat message edit files or run shell
-// commands on the server.
-const ALLOWED_TOOLS = "Read,Grep,Glob,WebSearch,WebFetch";
+// commands on the server. No WebFetch: the chat context carries mails and
+// web pages, and a prompt injected there could otherwise read a secret and
+// send it out in a URL. The secrets themselves are also off limits to Read.
+const ALLOWED_TOOLS = "Read,Grep,Glob,WebSearch";
+const DENIED_TOOLS = ["Read(./.env)", "Read(./.env.*)", "Read(./secrets/**)", "Read(./claude-bridge/session.json)"];
 
 function loadSessionId() {
   try {
@@ -67,6 +70,8 @@ function askClaude(message) {
       "sonnet",
       "--max-budget-usd",
       MAX_BUDGET_USD,
+      "--disallowed-tools",
+      ...DENIED_TOOLS,
     ];
     if (existing) args.push("--resume", existing);
     else args.push("--session-id", randomUUID());
