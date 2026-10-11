@@ -2,7 +2,7 @@
 
 Assistant perso de Mathéo : brief du matin, agenda, veille stages et mails, journal du soir avec coach, budget synchronisé avec la banque, suivi karting. PWA installable sur Android, protégée par un mot de passe.
 
-**Production : https://46.224.119.108.nip.io** (HTTPS Let's Encrypt, renouvellement automatique par certbot).
+**Production : https://os.replayto.com** (HTTPS Let's Encrypt, renouvellement automatique par certbot). L'ancienne adresse https://46.224.119.108.nip.io redirige (301) vers la nouvelle depuis le 2026-10-10.
 
 ## Ce que fait l'app
 
@@ -17,7 +17,7 @@ L'app a 4 onglets, plus une page « Moi » derrière l'icône de profil :
 ## Architecture
 
 ```
-nginx (hôte, TLS)
+nginx (hôte, TLS) : os.replayto.com (deploy/nginx-life-os-domain.conf) et 46.224.119.108.nip.io (deploy/nginx-life-os.conf, simple redirection)
 ├── /          → /var/www/life-os         frontend React (Vite), fichiers statiques
 ├── /dl/       → /var/www/dl              APK du launcher Android
 └── /api/      → 127.0.0.1:4100           backend (conteneur)
@@ -29,9 +29,9 @@ backend (Express + TypeScript, SQLite dans le volume life-os-data)
 ```
 
 - **IA** : tous les appels passent par `backend/src/aiClient.ts` (`callAiService`), qui les envoie au pont Claude. L'ancien conteneur `ai-service` (Gemini) a été supprimé le 2026-10-10.
-- **claude-bridge** (`claude-bridge/server.mjs`) tourne sur l'hôte car il a besoin du CLI `claude` déjà connecté. `/ask` sert au chat (session persistante, outils Read/Grep/Glob/WebSearch/WebFetch, 0,50 $ max par appel). `/complete` sert aux tâches de fond, sans outils. Installation : `claude-bridge/setup.sh`.
+- **claude-bridge** (`claude-bridge/server.mjs`) tourne sur l'hôte car il a besoin du CLI `claude` déjà connecté. `/ask` sert au chat (session persistante, outils Read/Grep/Glob/WebSearch, 0,50 $ max par appel). WebFetch est volontairement absent, et la lecture de `.env`, `secrets/` et du fichier de session est interdite (`--disallowed-tools`) : le contexte du chat contient des mails et des pages web, une injection de prompt ne doit pas pouvoir lire un secret ni l'envoyer dehors. `/complete` sert aux tâches de fond, sans outils. Installation : `claude-bridge/setup.sh`.
 - **Tâches planifiées** dans le backend (heure de Paris) : veille 7h et 18h, actions avant le brief, brief 9h, rappel du soir 21h30 sans journal, rappels toutes les minutes.
-- **Accès** : connexion par `APP_PASSWORD`. `LAUNCHER_TOKEN` donne au widget du launcher un accès limité à ses propres routes.
+- **Accès** : connexion par `APP_PASSWORD`. `PUBLIC_URL` (https://os.replayto.com) sert d'URL de retour à Enable Banking, elle doit être déclarée dans leur console. `LAUNCHER_TOKEN` donne au widget du launcher un accès limité à ses propres routes.
 
 ## Fichiers importants
 
@@ -56,7 +56,7 @@ Le script reconstruit et relance le backend, rebuild le frontend dans `/var/www/
 | 03:30 | `scripts/backup.sh` : snapshot SQLite + copie des uploads dans `/root/life-os-backups`, 14 jours gardés |
 | 03:45 | `scripts/offsite-backup.sh` : chiffre le dernier snapshot avec `age` et le pousse sur le repo privé `MathTheMith/life-os-backups` (7 archives) |
 
-| toutes les 5 min | `scripts/watchdog.sh` : vérifie Life OS, le Tennis, le pont Claude, le disque, les sauvegardes et les certificats. Alerte en push (ou par mail si Life OS est tombé) après 2 échecs, puis quand c'est rétabli. |
+| toutes les 5 min | `scripts/watchdog.sh` : vérifie Life OS (os.replayto.com, et la redirection nip.io), le portfolio (replayto.com), le Tennis, le pont Claude, le disque, les sauvegardes et les certificats. Alerte en push (ou par mail si Life OS est tombé) après 2 échecs, puis quand c'est rétabli. |
 
 Les logs sont dans `/var/log/life-os/`.
 

@@ -8,7 +8,9 @@ set -uo pipefail
 
 ENV=/root/life-os/.env
 STATE=${WATCHDOG_STATE:-/var/lib/life-os-watchdog}
-LIFEOS_URL=https://46.224.119.108.nip.io
+LIFEOS_URL=https://os.replayto.com
+LIFEOS_OLD_URL=https://46.224.119.108.nip.io   # now only redirects to LIFEOS_URL
+PORTFOLIO_URL=https://replayto.com
 TENNIS_URL=https://tennis.46.224.119.108.nip.io
 DISK_MAX_PCT=85
 CERT_MIN_DAYS=14
@@ -89,6 +91,8 @@ cert_ok() { # host
 }
 
 check lifeos     "Life OS"              http_up "$LIFEOS_URL/api/goals"
+check lifeos_old "Redirection nip.io"   http_up "$LIFEOS_OLD_URL/"
+check portfolio  "Portfolio"            http_up "$PORTFOLIO_URL/"
 check tennis     "Site Tennis"          http_up "$TENNIS_URL/"
 check bridge     "Pont Claude"          systemctl is-active --quiet claude-bridge
 check disk       "Disque du serveur"    disk_ok
@@ -97,3 +101,5 @@ check bk_tennis  "Sauvegarde Tennis"    fresh "/root/Tennis_Wesbite/backups/tenn
 check bk_offsite "Sauvegarde distante"  offsite_ok
 check cert_lifeos "Certificat Life OS"  cert_ok "${LIFEOS_URL#https://}"
 check cert_tennis "Certificat Tennis"   cert_ok "${TENNIS_URL#https://}"
+check cert_lifeos_old "Certificat Life OS (nip.io)" cert_ok "${LIFEOS_OLD_URL#https://}"
+check cert_portfolio "Certificat portfolio" cert_ok "${PORTFOLIO_URL#https://}"
